@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
@@ -151,15 +152,23 @@ class TerminalRequest(StrictModel):
 class ShellSessions:
     """A bounded, expiring LRU of server-issued virtual-shell sessions."""
 
-    def __init__(self, workspace: Workspace, max_sessions: int, ttl_seconds: int) -> None:
+    def __init__(
+        self,
+        workspace: Workspace,
+        max_sessions: int,
+        ttl_seconds: int,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.workspace = workspace
         self.max_sessions = max_sessions
         self.ttl_seconds = ttl_seconds
+        self._clock = clock
         self._sessions: OrderedDict[str, tuple[VirtualShell, float]] = OrderedDict()
         self._lock = threading.RLock()
 
     def _acquire(self, session_id: str | None) -> tuple[str, VirtualShell]:
-        now = time.monotonic()
+        now = self._clock()
         expired = [
             key for key, (_, touched) in self._sessions.items() if now - touched > self.ttl_seconds
         ]
@@ -197,7 +206,11 @@ class ShellSessions:
             return resolved_id, shell.execute(command)
 
 
-def create_app(settings: AppSettings | None = None) -> FastAPI:
+def create_app(
+    settings: AppSettings | None = None,
+    *,
+    session_clock: Callable[[], float] = time.monotonic,
+) -> FastAPI:
     """Create an isolated application instance for a workspace root."""
 
     resolved_settings = settings or AppSettings.from_environment()
@@ -208,7 +221,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         max_entries=resolved_settings.max_entries,
     )
     sessions = ShellSessions(
-        workspace, resolved_settings.max_sessions, resolved_settings.session_ttl_seconds
+        workspace,
+        resolved_settings.max_sessions,
+        resolved_settings.session_ttl_seconds,
+        clock=session_clock,
     )
     app = FastAPI(
         title="Samsarix Workspace API",

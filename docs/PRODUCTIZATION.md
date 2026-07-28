@@ -175,7 +175,7 @@ The final Windows/Python 3.11 release-candidate run produced:
 | --- | --- |
 | Ruff lint and format check | Passed with no findings; 11 Python files formatted |
 | Mypy strict package check | Passed; 6 source files checked |
-| Pytest with branch coverage | 40 passed, 1 platform-specific FIFO test skipped; 92.68% total coverage |
+| Pytest with branch coverage | 40 passed, 1 platform-specific FIFO test skipped; 92.70% total coverage |
 | JavaScript syntax check | Passed with Node.js `--check` |
 | Headed Chromium primary journey | Created, opened, edited, keyboard-saved, refreshed, and terminal-read a persistent file at desktop and 390×844 mobile sizes |
 | Browser console | Zero errors and zero warnings after fixes |

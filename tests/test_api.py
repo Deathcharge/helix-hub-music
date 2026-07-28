@@ -107,8 +107,14 @@ def test_request_body_limits_reject_declared_and_streamed_oversize(tmp_path: Pat
         assert streamed.status_code == 413
 
 
-def test_terminal_sessions_are_server_issued_bounded_and_expiring(tmp_path: Path) -> None:
-    with client_for(tmp_path, max_sessions=1, session_ttl_seconds=0) as client:
+def test_terminal_sessions_are_server_issued_bounded_and_expiring(
+    tmp_path: Path,
+) -> None:
+    ticks = iter([100.0, 104.0, 106.0])
+    settings = AppSettings(
+        workspace_root=tmp_path / "workspace", max_sessions=1, session_ttl_seconds=5
+    )
+    with TestClient(create_app(settings, session_clock=lambda: next(ticks))) as client:
         first = client.post("/api/v1/terminal/execute", json={"command": "pwd"}).json()
         invalid = client.post(
             "/api/v1/terminal/execute",
