@@ -1,45 +1,29 @@
-# Dual Licensing Strategy
+# Licensing Samsarix Workspace
 
-This project is available under two licenses:
+Samsarix Workspace is free software licensed under the **GNU Affero General Public License version 3 only** (`AGPL-3.0-only`). The complete, controlling terms are in [LICENSE](LICENSE).
 
-1. **Apache License 2.0** - For open-source use (free)
-2. **Proprietary Commercial License** - For businesses ($99-999/year)
+Copyright © 2026 Samsarix LLC. Historical authorship remains visible in Git history and is acknowledged in [NOTICE](NOTICE).
 
-## Apache 2.0 (Open Source)
+## Practical summary
 
-Use this license if you:
-- Are building open-source software
-- Want to contribute to the community
-- Are using it internally
-- Don't need commercial support
-- Want to avoid licensing fees
+The AGPL allows use, study, modification, and redistribution. Its conditions include preserving notices, providing the license, and making corresponding source available in covered distribution scenarios. It also includes a network-interaction provision: if users interact with your modified covered version over a network, you generally must offer those users the corresponding source for that version.
 
-See [LICENSE](./LICENSE) for full terms.
+That means the license protects source availability; it does not stop commercial use, hosting, forks, or modification. “Open source but nobody can sell or host it” would require a source-available license instead and would not meet the Open Source Definition.
 
-## Proprietary Commercial License
+This summary is intentionally incomplete and is not legal advice. Read [LICENSE](LICENSE) and consult qualified counsel for a specific deployment or business model.
 
-Use this license if you:
-- Are building commercial products
-- Want priority support
-- Need legal indemnification
-- Want to support the developer
+## Credit and marks
 
-**Pricing:**
-- Startup: $99/year (up to 5 deployments)
-- Professional: $499/year (up to 25 deployments)
-- Enterprise: Custom quote (unlimited)
+- Keep copyright, license, and attribution notices required by the AGPL.
+- Do not imply that a fork or service is endorsed by Samsarix LLC.
+- The software license does not grant rights to Samsarix names, logos, or trademarks except as necessary for truthful attribution.
 
-**Includes:**
-- Priority email support (best-effort)
-- Indemnification for unmodified software
-- Commercial use rights
-- Quarterly consulting calls (Professional+)
+## Contributions
 
-**Important:** This is a solo project. Support is best-effort, not guaranteed SLAs. I'm one person building this as a passion project, so please set realistic expectations.
+Contributions are accepted under `AGPL-3.0-only` and require a Developer Certificate of Origin sign-off as described in [CONTRIBUTING.md](CONTRIBUTING.md). Sign-off certifies the right to submit; it is not a copyright assignment.
 
-For commercial licensing inquiries:
-📧 licensing@helixcollective.io
+Because outside contributors retain copyright, Samsarix LLC makes no current promise that it can offer proprietary exceptions for the complete project. A future commercial dual-license program would first require a documented rights review and an appropriate contributor agreement.
 
----
+## Questions
 
-See the main [helix-orchestration](https://github.com/Deathcharge/helix-orchestration) repository for complete licensing documentation.
+Licensing or commercial inquiries: [contact@samsarix.com](mailto:contact@samsarix.com)

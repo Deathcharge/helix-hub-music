@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="Samsarix Workspace — a local-first text workspace.">
+    <title>Samsarix Workspace</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23171b24'/%3E%3Cpath d='M42 20c-3-3-7-5-12-5-7 0-12 4-12 10 0 14 25 7 25 18 0 4-4 7-10 7-6 0-11-2-15-6' fill='none' stroke='%23b8ff5a' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/assets/app.css">
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#editor">Skip to editor</a>
+    <header class="topbar">
+      <div class="brand" aria-label="Samsarix Workspace">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>
+          <strong>Samsarix</strong>
+          <small>Workspace</small>
+        </span>
+      </div>
+      <div class="workspace-state">
+        <span id="health-dot" class="health-dot" aria-hidden="true"></span>
+        <span id="workspace-name">Connecting…</span>
+        <span id="usage" class="muted"></span>
+      </div>
+      <nav class="top-actions" aria-label="Workspace actions">
+        <button id="refresh-button" class="button ghost" type="button" title="Refresh files">Refresh</button>
+        <a class="button ghost" href="/openapi.json" target="_blank" rel="noreferrer">API</a>
+      </nav>
+    </header>
+
+    <div class="workspace-grid">
+      <aside class="sidebar" aria-label="File browser">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Local files</p>
+            <h1>Workspace</h1>
+          </div>
+          <div class="compact-actions">
+            <button id="new-file-button" class="icon-button" type="button" title="New file" aria-label="New file">＋</button>
+            <button id="new-folder-button" class="icon-button" type="button" title="New folder" aria-label="New folder">▱</button>
+          </div>
+        </div>
+        <div id="files-loading" class="loading-stack" aria-label="Loading files">
+          <span></span><span></span><span></span>
+        </div>
+        <div id="files-empty" class="empty-card" hidden>
+          <strong>A clean slate.</strong>
+          <p>Create a text file or initialize this folder from the CLI.</p>
+          <button id="empty-new-button" class="button primary" type="button">Create a file</button>
+        </div>
+        <div id="file-tree" class="file-tree" role="tree" aria-label="Workspace files" hidden></div>
+        <footer class="sidebar-footer">
+          <span>UTF-8 text · persistent on disk</span>
+        </footer>
+      </aside>
+
+      <main class="main-pane">
+        <section class="editor-panel" aria-labelledby="document-title">
+          <header class="document-bar">
+            <div class="document-identity">
+              <span id="dirty-indicator" class="dirty-indicator" title="Unsaved changes" hidden></span>
+              <div>
+                <p id="document-path" class="breadcrumb">No file open</p>
+                <h2 id="document-title">Choose a file</h2>
+              </div>
+            </div>
+            <div class="document-actions">
+              <button id="rename-button" class="button ghost" type="button" disabled>Rename</button>
+              <button id="delete-button" class="button danger-ghost" type="button" disabled>Delete</button>
+              <button id="save-button" class="button primary" type="button" disabled>Save <kbd>Ctrl S</kbd></button>
+            </div>
+          </header>
+          <div id="editor-empty" class="editor-empty">
+            <div class="empty-glyph" aria-hidden="true">⌁</div>
+            <h2>Your files, close at hand.</h2>
+            <p>Open a UTF-8 text file from the sidebar or create a new one. Changes stay in the folder you chose when starting Samsarix Workspace.</p>
+          </div>
+          <label class="sr-only" for="editor">File editor</label>
+          <textarea id="editor" class="editor" spellcheck="false" autocomplete="off" hidden></textarea>
+          <footer class="editor-status">
+            <span id="editor-message">Ready</span>
+            <span id="file-stats"></span>
+          </footer>
+        </section>
+
+        <section class="terminal-panel" aria-labelledby="terminal-heading">
+          <header class="terminal-heading-row">
+            <div>
+              <p class="eyebrow">Bounded command surface</p>
+              <h2 id="terminal-heading">Virtual terminal</h2>
+            </div>
+            <span class="safe-badge">No OS shell</span>
+          </header>
+          <div id="terminal-output" class="terminal-output" role="log" aria-live="polite"><span class="terminal-note">Samsarix virtual terminal · type <strong>help</strong> for commands.</span></div>
+          <form id="terminal-form" class="terminal-form">
+            <label id="terminal-prompt" for="terminal-input">/$</label>
+            <input id="terminal-input" name="command" maxlength="2048" autocomplete="off" spellcheck="false" aria-label="Virtual terminal command" placeholder="help">
+            <button class="button terminal-run" type="submit">Run</button>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="entry-dialog" class="dialog">
+      <form id="entry-form" method="dialog">
+        <p id="entry-eyebrow" class="eyebrow">Create</p>
+        <h2 id="entry-title">New file</h2>
+        <label for="entry-path">Workspace path</label>
+        <input id="entry-path" name="path" maxlength="512" required placeholder="notes/idea.md" autocomplete="off">
+        <p class="field-note">Use forward slashes. Parent folders must already exist.</p>
+        <div class="dialog-actions">
+          <button class="button ghost" value="cancel" type="button" data-close-dialog>Cancel</button>
+          <button id="entry-submit" class="button primary" value="submit" type="submit">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="confirm-dialog" class="dialog">
+      <form id="confirm-form" method="dialog">
+        <p class="eyebrow">Please confirm</p>
+        <h2 id="confirm-title">Delete this entry?</h2>
+        <p id="confirm-message"></p>
+        <div class="dialog-actions">
+          <button class="button ghost" type="button" data-close-dialog>Cancel</button>
+          <button class="button danger" value="confirm" type="submit">Delete permanently</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="token-dialog" class="dialog" data-static>
+      <form id="token-form" method="dialog">
+        <p class="eyebrow">Protected workspace</p>
+        <h2>Enter access token</h2>
+        <p>This server requires the bearer token configured in <code>SAMSARIX_WORKSPACE_TOKEN</code>. It is kept only for this browser tab.</p>
+        <input class="sr-only" name="username" autocomplete="username" value="samsarix" tabindex="-1" aria-hidden="true">
+        <label for="token-input">Access token</label>
+        <input id="token-input" name="token" type="password" required autocomplete="current-password">
+        <p id="token-error" class="field-error" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button class="button primary" value="submit" type="submit">Unlock workspace</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

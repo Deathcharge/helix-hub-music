@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=75,<82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "samsarix-workspace"
+version = "0.1.0"
+description = "A small, local-first browser workspace for files and safe virtual commands."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+authors = [
+  { name = "Samsarix LLC", email = "contact@samsarix.com" },
+]
+maintainers = [
+  { name = "Samsarix LLC", email = "support@samsarix.com" },
+]
+keywords = ["workspace", "editor", "local-first", "fastapi"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: User Interfaces",
+  "Typing :: Typed",
+]
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2,<2",
+  "httpx>=0.27,<1",
+  "mypy>=1.14,<2",
+  "pytest>=8,<9",
+  "pytest-cov>=6,<8",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+samsarix-workspace = "samsarix_workspace.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Deathcharge/helix-web-os"
+Documentation = "https://github.com/Deathcharge/helix-web-os#readme"
+Issues = "https://github.com/Deathcharge/helix-web-os/issues"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["samsarix_workspace*"]
+
+[tool.setuptools.package-data]
+samsarix_workspace = ["py.typed", "static/*.html", "static/*.css", "static/*.js"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers --cov=samsarix_workspace --cov-report=term-missing --cov-report=xml --cov-fail-under=90"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["samsarix_workspace"]
+
+[tool.coverage.report]
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+]
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "UP", "RUF", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["samsarix_workspace"]
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["uvicorn"]
+ignore_missing_imports = true
