@@ -24,7 +24,7 @@ The virtual terminal dispatches an explicit in-process allowlist. It does **not*
 Requirements: Python 3.11 or newer.
 
 ```bash
-git clone https://github.com/Deathcharge/helix-web-os.git
+git clone https://github.com/Deathcharge/samsarix-workspace.git
 cd helix-web-os
 python -m venv .venv
 ```
@@ -138,7 +138,7 @@ The test gate requires at least 90% branch-aware coverage of the Python package.
 
 - Product and business inquiries: [contact@samsarix.com](mailto:contact@samsarix.com)
 - Support and security reports: [support@samsarix.com](mailto:support@samsarix.com)
-- Bugs and feature requests: [GitHub Issues](https://github.com/Deathcharge/helix-web-os/issues)
+- Bugs and feature requests: [GitHub Issues](https://github.com/Deathcharge/samsarix-workspace/issues)
 
 ## License
 
