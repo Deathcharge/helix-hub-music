@@ -44,3 +44,8 @@ node_modules/
 npm-debug.log
 venv/
 ENV/
+.venv/
+.env
+*.log
+.playwright-cli/
+output/playwright/
