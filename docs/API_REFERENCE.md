@@ -11,7 +11,7 @@ The API is versioned under `/api/v1`. JSON failures use one envelope:
 }
 ```
 
-Validation failures may add a `details` array. When `SAMSARIX_WORKSPACE_TOKEN` is configured, send `Authorization: Bearer <token>` to all `/api/v1` endpoints. `/`, `/assets/*`, `/openapi.json`, and `/healthz` remain public so a client can load and display the unlock prompt.
+Validation failures may add a `details` array. Every request must use an accepted HTTP Host value. When `SAMSARIX_WORKSPACE_TOKEN` is configured, send `Authorization: Bearer <token>` to all `/api/v1` endpoints. `/`, `/assets/*`, `/openapi.json`, and `/healthz` remain unauthenticated so a client can load and display the unlock prompt, but they are still protected by Host validation.
 
 ## Health
 

@@ -54,11 +54,12 @@ idea.md
 | --- | --- |
 | `SAMSARIX_WORKSPACE_ROOT` | Default folder for `serve` when no path argument is supplied |
 | `SAMSARIX_WORKSPACE_TOKEN` | Bearer token required by the API and UI; mandatory for non-loopback binds |
+| `SAMSARIX_WORKSPACE_ALLOWED_HOSTS` | Comma-separated accepted Host values when the app factory is configured from the environment |
 
 CLI options:
 
 ```text
-samsarix-workspace serve [path] [--host HOST] [--port PORT] [--open]
+samsarix-workspace serve [path] [--host HOST] [--allowed-host HOST] [--port PORT] [--open]
 ```
 
 The default host is `127.0.0.1`; the default port is `8765`. Use `--log-level warning` to reduce request logging.
@@ -88,4 +89,4 @@ The editor supports bounded UTF-8 regular files only. Binary files, files over 1
 
 ### The server refuses `--host 0.0.0.0`
 
-Set a random `SAMSARIX_WORKSPACE_TOKEN` of at least 20 characters. For untrusted networks, also terminate TLS and restrict network access in a reverse proxy or tunnel.
+Set a random ASCII `SAMSARIX_WORKSPACE_TOKEN` of at least 20 characters and pass at least one `--allowed-host` naming the hostname clients will use. Repeat the option for aliases. For untrusted networks, also terminate TLS and restrict network access in a reverse proxy or tunnel.

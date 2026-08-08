@@ -9,6 +9,7 @@ const state = {
   dirty: false,
   terminalSession: null,
   entryMode: "file",
+  pendingConflict: null,
   toastTimer: null,
 };
 
@@ -20,7 +21,8 @@ const elements = Object.fromEntries(
     "save-button", "editor-empty", "editor", "editor-message", "file-stats",
     "terminal-output", "terminal-form", "terminal-prompt", "terminal-input", "entry-dialog",
     "entry-form", "entry-eyebrow", "entry-title", "entry-path", "entry-submit",
-    "confirm-dialog", "confirm-form", "confirm-title", "confirm-message", "token-dialog",
+    "confirm-dialog", "confirm-form", "confirm-title", "confirm-message", "conflict-dialog",
+    "conflict-message", "conflict-cancel", "conflict-reload", "conflict-overwrite", "token-dialog",
     "token-form", "token-input", "token-error", "toast",
   ].map((id) => [id, document.getElementById(id)])
 );
@@ -204,6 +206,7 @@ function closeDocument() {
   state.selectedKind = null;
   state.etag = null;
   state.dirty = false;
+  state.pendingConflict = null;
   elements.editor.value = "";
   elements.editor.hidden = true;
   elements["editor-empty"].hidden = false;
@@ -221,21 +224,78 @@ function closeDocument() {
 
 async function saveFile() {
   if (!state.selectedPath || state.selectedKind !== "file" || !state.dirty) return;
+  await persistFile(elements.editor.value, state.etag);
+}
+
+async function persistFile(content, expectedEtag) {
   elements["save-button"].disabled = true;
   elements["editor-message"].textContent = "Saving…";
   try {
     const payload = await api("/api/v1/file", {
       method: "PUT",
-      body: JSON.stringify({ path: state.selectedPath, content: elements.editor.value, expected_etag: state.etag }),
+      body: JSON.stringify({ path: state.selectedPath, content, expected_etag: expectedEtag }),
     });
     state.etag = payload.file.etag;
+    state.pendingConflict = null;
     updateDirty(false);
     toast(`Saved ${state.selectedPath}`);
     await refreshWorkspace();
   } catch (error) {
     updateDirty(true);
-    showError(error);
+    if (error instanceof ApiError && error.code === "edit_conflict") {
+      await prepareConflict(content);
+    } else {
+      showError(error);
+    }
   }
+}
+
+async function prepareConflict(localContent) {
+  let serverFile = null;
+  try {
+    const payload = await api(`/api/v1/file?path=${encodeURIComponent(state.selectedPath)}`);
+    serverFile = payload.file;
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== "not_found") {
+      showError(error);
+      return;
+    }
+  }
+  state.pendingConflict = { path: state.selectedPath, localContent, serverFile };
+  state.etag = serverFile ? serverFile.etag : null;
+  elements["conflict-message"].textContent = serverFile
+    ? `${state.selectedPath} changed on disk after you opened it. Your unsaved text is still in the editor.`
+    : `${state.selectedPath} was deleted on disk after you opened it. Your unsaved text is still in the editor.`;
+  elements["conflict-reload"].textContent = serverFile ? "Reload disk version" : "Accept deletion";
+  elements["conflict-dialog"].showModal();
+  elements["conflict-overwrite"].focus();
+}
+
+async function reloadConflict() {
+  const conflict = state.pendingConflict;
+  if (!conflict) return;
+  elements["conflict-dialog"].close();
+  state.pendingConflict = null;
+  if (!conflict.serverFile) {
+    closeDocument();
+    await refreshWorkspace({ keepSelection: false });
+    toast(`Accepted deletion of ${conflict.path}`);
+    return;
+  }
+  elements.editor.value = conflict.serverFile.content;
+  state.etag = conflict.serverFile.etag;
+  updateDirty(false);
+  updateStats();
+  toast(`Reloaded ${conflict.path}`);
+  elements.editor.focus();
+}
+
+async function overwriteConflict() {
+  const conflict = state.pendingConflict;
+  if (!conflict) return;
+  elements["conflict-dialog"].close();
+  state.pendingConflict = null;
+  await persistFile(conflict.localContent, conflict.serverFile ? conflict.serverFile.etag : null);
 }
 
 function openEntryDialog(mode, initialPath = "") {
@@ -378,6 +438,9 @@ elements["delete-button"].addEventListener("click", requestDelete);
 elements.editor.addEventListener("input", () => { updateDirty(true); updateStats(); });
 elements["entry-form"].addEventListener("submit", submitEntry);
 elements["confirm-form"].addEventListener("submit", confirmDelete);
+elements["conflict-cancel"].addEventListener("click", () => elements["conflict-dialog"].close());
+elements["conflict-reload"].addEventListener("click", reloadConflict);
+elements["conflict-overwrite"].addEventListener("click", overwriteConflict);
 elements["terminal-form"].addEventListener("submit", runTerminal);
 elements["token-form"].addEventListener("submit", submitToken);
 document.querySelectorAll("[data-close-dialog]").forEach((button) => {

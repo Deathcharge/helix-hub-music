@@ -11,7 +11,7 @@
     <script src="/assets/app.js" defer></script>
   </head>
   <body>
-    <a class="skip-link" href="#editor">Skip to editor</a>
+    <a class="skip-link" href="#main-pane">Skip to workspace</a>
     <header class="topbar">
       <div class="brand" aria-label="Samsarix Workspace">
         <span class="brand-mark" aria-hidden="true">S</span>
@@ -57,7 +57,7 @@
         </footer>
       </aside>
 
-      <main class="main-pane">
+      <main id="main-pane" class="main-pane" tabindex="-1">
         <section class="editor-panel" aria-labelledby="document-title">
           <header class="document-bar">
             <div class="document-identity">
@@ -128,6 +128,19 @@
           <button class="button danger" value="confirm" type="submit">Delete permanently</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="conflict-dialog" class="dialog">
+      <div>
+        <p class="eyebrow">Newer version detected</p>
+        <h2>Choose which edit to keep</h2>
+        <p id="conflict-message">This file changed on disk after you opened it. Your unsaved text is still in the editor.</p>
+        <div class="dialog-actions conflict-actions">
+          <button id="conflict-cancel" class="button ghost" type="button">Keep editing</button>
+          <button id="conflict-reload" class="button ghost" type="button">Reload disk version</button>
+          <button id="conflict-overwrite" class="button danger" type="button">Overwrite with my edit</button>
+        </div>
+      </div>
     </dialog>
 
     <dialog id="token-dialog" class="dialog" data-static>

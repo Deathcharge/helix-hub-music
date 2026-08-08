@@ -63,15 +63,15 @@ The default listener is `127.0.0.1` and does not require a token. A non-loopback
 
 ```powershell
 $env:SAMSARIX_WORKSPACE_TOKEN = "replace-with-a-long-random-secret"
-samsarix-workspace serve ../my-workspace --host 0.0.0.0
+samsarix-workspace serve ../my-workspace --host 0.0.0.0 --allowed-host workspace.example
 ```
 
 ```bash
 export SAMSARIX_WORKSPACE_TOKEN="replace-with-a-long-random-secret"
-samsarix-workspace serve ../my-workspace --host 0.0.0.0
+samsarix-workspace serve ../my-workspace --host 0.0.0.0 --allowed-host workspace.example
 ```
 
-For any untrusted network, put the service behind a TLS reverse proxy and network access controls. The built-in token is a single-workspace gate, not multi-user identity or tenant isolation. Tokens are read from the environment, never from a CLI argument, and the browser retains a submitted token only in tab-scoped session storage.
+Replace `workspace.example` with the hostname clients actually use; repeat `--allowed-host` for aliases. For any untrusted network, put the service behind a TLS reverse proxy and network access controls. The built-in token is a single-workspace gate, not multi-user identity or tenant isolation. Tokens are ASCII secrets read from the environment, never from a CLI argument, and the browser retains a submitted token only in tab-scoped session storage.
 
 ## Deliberate limits
 

@@ -59,12 +59,36 @@ def test_terminal_parsing_usage_and_path_errors(workspace: Workspace) -> None:
 def test_hidden_files_clear_and_output_bound(workspace: Workspace) -> None:
     workspace.write_file(".hidden", "secret")
     workspace.write_file("visible", "abcdefghij")
-    shell = VirtualShell(workspace, max_output_chars=30)
+    shell = VirtualShell(workspace, max_output_chars=80)
     assert shell.execute("ls").output == "visible"
     assert ".hidden" in shell.execute("ls -a").output
     assert shell.execute("ls a b").exit_code == 1
     assert shell.execute("help").output.endswith("… output truncated by Samsarix Workspace …")
+    tiny_shell = VirtualShell(workspace, max_output_chars=3)
+    assert len(tiny_shell.execute("help").output) == 3
     assert shell.execute("clear").clear is True
+
+
+def test_command_allowlist_is_initialized_once_and_introspectable(workspace: Workspace) -> None:
+    shell = VirtualShell(workspace)
+    assert set(shell.handlers) == {
+        "help",
+        "pwd",
+        "cd",
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "wc",
+        "find",
+        "grep",
+        "mkdir",
+        "touch",
+        "mv",
+        "rm",
+        "echo",
+        "clear",
+    }
 
 
 def test_touch_preserves_existing_content_and_reports_file_errors(workspace: Workspace) -> None:

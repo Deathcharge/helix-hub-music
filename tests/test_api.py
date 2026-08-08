@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from samsarix_workspace.api import AppSettings, create_app
 
 
 def client_for(tmp_path: Path, **overrides: object) -> TestClient:
-    settings = AppSettings(workspace_root=tmp_path / "workspace", **overrides)  # type: ignore[arg-type]
+    values: dict[str, object] = {"allowed_hosts": ("testserver",)}
+    values.update(overrides)
+    settings = AppSettings(  # type: ignore[arg-type]
+        workspace_root=tmp_path / "workspace", **values
+    )
     return TestClient(create_app(settings))
 
 
@@ -76,6 +81,22 @@ def test_token_authentication_uses_standard_error_contract(tmp_path: Path) -> No
         assert client.get("/healthz").status_code == 200
 
 
+def test_host_header_is_validated_before_routes(tmp_path: Path) -> None:
+    with client_for(tmp_path) as client:
+        rejected = client.get("/healthz", headers={"Host": "attacker.example"})
+        assert rejected.status_code == 400
+        assert rejected.text == "Invalid host header"
+
+
+def test_non_ascii_bearer_token_configuration_is_rejected(tmp_path: Path) -> None:
+    settings = AppSettings(
+        workspace_root=tmp_path / "workspace",
+        token="correct-horse-battery-staple-é",
+    )
+    with pytest.raises(ValueError, match="only ASCII"):
+        create_app(settings)
+
+
 def test_validation_and_workspace_errors_are_stable(tmp_path: Path) -> None:
     with client_for(tmp_path) as client:
         invalid = client.put("/api/v1/file", json={"path": "x", "content": "", "extra": 1})
@@ -112,7 +133,10 @@ def test_terminal_sessions_are_server_issued_bounded_and_expiring(
 ) -> None:
     ticks = iter([100.0, 104.0, 106.0])
     settings = AppSettings(
-        workspace_root=tmp_path / "workspace", max_sessions=1, session_ttl_seconds=5
+        workspace_root=tmp_path / "workspace",
+        max_sessions=1,
+        session_ttl_seconds=5,
+        allowed_hosts=("testserver",),
     )
     with TestClient(create_app(settings, session_clock=lambda: next(ticks))) as client:
         first = client.post("/api/v1/terminal/execute", json={"command": "pwd"}).json()

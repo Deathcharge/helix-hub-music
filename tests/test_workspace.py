@@ -189,6 +189,11 @@ def test_parent_and_type_errors_are_stable(workspace: Workspace) -> None:
         workspace.read_file("absent.txt")
     with raises_code("already_exists"):
         workspace.make_directory("file.txt")
+    with raises_code("not_a_directory"):
+        workspace.assert_directory("file.txt")
+    with raises_code("not_found"):
+        workspace.assert_directory("missing")
+    workspace.assert_directory("")
 
 
 def test_listing_is_sorted_bounded_and_does_not_follow_symlinks(tmp_path: Path) -> None:

@@ -156,8 +156,7 @@ class Workspace:
         return candidate
 
     @staticmethod
-    def _timestamp(path: Path) -> str:
-        metadata = path.lstat() if path.is_symlink() else path.stat()
+    def _timestamp(metadata: os.stat_result) -> str:
         stamp = datetime.fromtimestamp(metadata.st_mtime, tz=UTC)
         return stamp.isoformat().replace("+00:00", "Z")
 
@@ -167,16 +166,21 @@ class Workspace:
 
     def _entry(self, path: Path) -> Entry:
         relative = path.relative_to(self.root).as_posix()
-        if path.is_symlink():
-            return Entry(relative, path.name, "blocked_symlink", 0, self._timestamp(path))
-        if path.is_dir():
-            return Entry(relative, path.name, "directory", 0, self._timestamp(path))
-        if not path.is_file():
-            return Entry(relative, path.name, "blocked_special", 0, self._timestamp(path))
-        size = path.stat().st_size
-        if path.stat(follow_symlinks=False).st_nlink > 1:
-            return Entry(relative, path.name, "blocked_hardlink", size, self._timestamp(path))
-        return Entry(relative, path.name, "file", size, self._timestamp(path))
+        try:
+            metadata = path.lstat()
+        except OSError as exc:
+            raise WorkspaceError("path_unavailable", "The requested path is unavailable.") from exc
+        modified_at = self._timestamp(metadata)
+        mode = metadata.st_mode
+        if stat.S_ISLNK(mode):
+            return Entry(relative, path.name, "blocked_symlink", 0, modified_at)
+        if stat.S_ISDIR(mode):
+            return Entry(relative, path.name, "directory", 0, modified_at)
+        if not stat.S_ISREG(mode):
+            return Entry(relative, path.name, "blocked_special", 0, modified_at)
+        if metadata.st_nlink > 1:
+            return Entry(relative, path.name, "blocked_hardlink", metadata.st_size, modified_at)
+        return Entry(relative, path.name, "file", metadata.st_size, modified_at)
 
     def list_entries(self, path: str = "", *, recursive: bool = False) -> list[Entry]:
         """List a folder with deterministic ordering and an entry ceiling."""
@@ -203,16 +207,22 @@ class Workspace:
                             413,
                         )
         else:
-            entries = [
-                self._entry(item) for item in sorted(directory.iterdir(), key=lambda p: p.name)
-            ]
-            if len(entries) > self.max_entries:
-                raise WorkspaceError(
-                    "entry_limit_exceeded",
-                    f"Folder listing exceeds {self.max_entries} entries.",
-                    413,
-                )
+            for item in sorted(directory.iterdir(), key=lambda item: item.name):
+                entries.append(self._entry(item))
+                if len(entries) > self.max_entries:
+                    raise WorkspaceError(
+                        "entry_limit_exceeded",
+                        f"Folder listing exceeds {self.max_entries} entries.",
+                        413,
+                    )
         return sorted(entries, key=lambda entry: (entry.path.casefold(), entry.path))
+
+    def assert_directory(self, path: str = "") -> None:
+        """Validate that a public path resolves to an existing workspace directory."""
+
+        candidate = self._safe_path(path, must_exist=True)
+        if not candidate.is_dir():
+            raise WorkspaceError("not_a_directory", "The requested path is not a directory.")
 
     def read_file(self, path: str) -> FileDocument:
         """Read one bounded UTF-8 text file."""
@@ -240,7 +250,7 @@ class Workspace:
             path=self.normalize(path, allow_root=False),
             content=content,
             size=len(content_bytes),
-            modified_at=self._timestamp(candidate),
+            modified_at=self._timestamp(candidate.stat()),
             etag=self._etag_bytes(content_bytes),
         )
 
@@ -254,9 +264,9 @@ class Workspace:
             for name in files:
                 item = current / name
                 try:
-                    mode = item.stat(follow_symlinks=False).st_mode
-                    if stat.S_ISREG(mode):
-                        total += item.stat(follow_symlinks=False).st_size
+                    metadata = item.stat(follow_symlinks=False)
+                    if stat.S_ISREG(metadata.st_mode):
+                        total += metadata.st_size
                 except OSError:
                     continue
         return total
@@ -278,7 +288,6 @@ class Workspace:
                 413,
             )
         candidate = self._safe_path(path, allow_root=False)
-        self._reject_symlink_parts(candidate, include_leaf=True)
         parent = candidate.parent
         self._reject_symlink_parts(parent)
         if not parent.exists() or not parent.is_dir():
@@ -415,7 +424,9 @@ class Workspace:
         return {
             "name": self.root.name,
             "entries": len(entries),
-            "usage_bytes": self.usage_bytes(),
+            "usage_bytes": sum(
+                entry.size for entry in entries if entry.kind in {"file", "blocked_hardlink"}
+            ),
             "limits": {
                 "max_file_bytes": self.max_file_bytes,
                 "max_total_bytes": self.max_total_bytes,

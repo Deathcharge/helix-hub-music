@@ -19,6 +19,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from samsarix_workspace import __version__
@@ -38,12 +39,19 @@ class AppSettings:
     max_request_bytes: int = 1_310_720
     max_sessions: int = 128
     session_ttl_seconds: int = 21_600
+    allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
 
     @classmethod
     def from_environment(cls) -> AppSettings:
         root = Path(os.environ.get("SAMSARIX_WORKSPACE_ROOT", "."))
         token = os.environ.get("SAMSARIX_WORKSPACE_TOKEN") or None
-        return cls(workspace_root=root, token=token)
+        configured_hosts = os.environ.get("SAMSARIX_WORKSPACE_ALLOWED_HOSTS", "")
+        allowed_hosts = tuple(host.strip() for host in configured_hosts.split(",") if host.strip())
+        return cls(
+            workspace_root=root,
+            token=token,
+            allowed_hosts=allowed_hosts or ("localhost", "127.0.0.1", "::1"),
+        )
 
 
 class RequestBodyLimitMiddleware:
@@ -214,6 +222,8 @@ def create_app(
     """Create an isolated application instance for a workspace root."""
 
     resolved_settings = settings or AppSettings.from_environment()
+    if resolved_settings.token is not None and not resolved_settings.token.isascii():
+        raise ValueError("SAMSARIX_WORKSPACE_TOKEN must contain only ASCII characters")
     workspace = Workspace(
         resolved_settings.workspace_root,
         max_file_bytes=resolved_settings.max_file_bytes,
@@ -251,6 +261,11 @@ def create_app(
     # Added after the response-header middleware so it is the outermost ASGI
     # layer and can terminate streamed oversized bodies before JSON parsing.
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=resolved_settings.max_request_bytes)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=list(resolved_settings.allowed_hosts),
+        www_redirect=False,
+    )
 
     @app.exception_handler(WorkspaceError)
     async def workspace_error_handler(_request: Request, exc: WorkspaceError) -> JSONResponse:
@@ -289,7 +304,7 @@ def create_app(
         if not authorization or not authorization.startswith(prefix):
             raise WorkspaceError("authentication_required", "A bearer token is required.", 401)
         supplied = authorization[len(prefix) :]
-        if not secrets.compare_digest(supplied, expected):
+        if not secrets.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
             raise WorkspaceError("authentication_failed", "The bearer token is not valid.", 401)
 
     router = APIRouter(prefix="/api/v1", dependencies=[Depends(authorize)])

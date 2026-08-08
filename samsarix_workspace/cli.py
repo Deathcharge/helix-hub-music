@@ -54,6 +54,13 @@ def _parser() -> argparse.ArgumentParser:
         help="Workspace folder (default: SAMSARIX_WORKSPACE_ROOT or .)",
     )
     serve.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
+    serve.add_argument(
+        "--allowed-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help="Accepted HTTP Host value; repeat for aliases (required with wildcard binds)",
+    )
     serve.add_argument("--port", type=int, default=8765, help="TCP port (default: 8765)")
     serve.add_argument("--open", action="store_true", help="Open the workspace in a browser")
     serve.add_argument(
@@ -63,9 +70,13 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _initialize(path: Path) -> int:
-    path.mkdir(parents=True, exist_ok=True)
-    if not path.is_dir():
+    if path.exists() and not path.is_dir():
         print(f"error: {path} is not a directory", file=sys.stderr)
+        return 1
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"error: could not create {path}: {exc}", file=sys.stderr)
         return 1
     welcome = path / "WELCOME.md"
     if welcome.exists():
@@ -85,6 +96,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _initialize(Path(args.path).expanduser())
 
     token = os.environ.get("SAMSARIX_WORKSPACE_TOKEN") or None
+    if token is not None and not token.isascii():
+        parser.error("SAMSARIX_WORKSPACE_TOKEN must contain only ASCII characters")
     if not 1 <= args.port <= 65_535:
         parser.error("--port must be between 1 and 65535")
     if not _is_loopback(args.host):
@@ -96,9 +109,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         if len(token) < 20:
             parser.error("SAMSARIX_WORKSPACE_TOKEN must contain at least 20 characters")
 
-    root = Path(args.path).expanduser().resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    app = create_app(AppSettings(workspace_root=root, token=token))
+    requested_root = Path(args.path).expanduser()
+    if requested_root.exists() and not requested_root.is_dir():
+        parser.error(f"workspace path is not a directory: {requested_root}")
+    try:
+        requested_root.mkdir(parents=True, exist_ok=True)
+        root = requested_root.resolve(strict=True)
+    except OSError as exc:
+        parser.error(f"could not create workspace path {requested_root}: {exc}")
+
+    defaults = ["localhost", "127.0.0.1", "::1"]
+    wildcard_bind = args.host in {"0.0.0.0", "::"}
+    if wildcard_bind and not args.allowed_host:
+        parser.error("wildcard binding requires at least one explicit --allowed-host")
+    if not wildcard_bind:
+        defaults.append(args.host)
+    allowed_hosts = tuple(dict.fromkeys([*defaults, *args.allowed_host]))
+    app = create_app(AppSettings(workspace_root=root, token=token, allowed_hosts=allowed_hosts))
     url_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
     url = f"http://{url_host}:{args.port}"
     print(f"Samsarix Workspace: {url}")
