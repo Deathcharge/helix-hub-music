@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 import shutil
 import stat
 import tempfile
@@ -58,6 +59,38 @@ class FileDocument:
         return asdict(self)
 
 
+@dataclass(frozen=True, slots=True)
+class SearchMatch:
+    """One bounded matching line in a UTF-8 workspace file."""
+
+    path: str
+    line: int
+    column: int
+    length: int
+    preview: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SearchReport:
+    """Resource accounting and matches for one workspace search."""
+
+    query: str
+    path: str
+    matches: tuple[SearchMatch, ...]
+    scanned_files: int
+    scanned_bytes: int
+    skipped_files: int
+    truncated: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["matches"] = [match.to_dict() for match in self.matches]
+        return payload
+
+
 class Workspace:
     """A bounded text-file workspace rooted at one canonical directory."""
 
@@ -77,6 +110,7 @@ class Workspace:
         self.max_file_bytes = max_file_bytes
         self.max_total_bytes = max_total_bytes
         self.max_entries = max_entries
+        self.workspace_id = secrets.token_hex(8)
         self._lock = threading.RLock()
 
     @staticmethod
@@ -224,6 +258,114 @@ class Workspace:
         if not candidate.is_dir():
             raise WorkspaceError("not_a_directory", "The requested path is not a directory.")
 
+    @staticmethod
+    def _search_preview(line: str, column: int, *, limit: int = 240) -> str:
+        compact = line.strip()
+        if len(compact) <= limit:
+            return compact
+        stripped_prefix = len(line) - len(line.lstrip())
+        compact_column = max(0, column - stripped_prefix)
+        start = max(0, compact_column - limit // 3)
+        end = min(len(compact), start + limit)
+        if end - start < limit:
+            start = max(0, end - limit)
+        return ("…" if start else "") + compact[start:end] + ("…" if end < len(compact) else "")
+
+    @staticmethod
+    def _casefold_span(line: str, needle: str) -> tuple[int, int] | None:
+        """Map a case-folded match back to a source-character span."""
+
+        folded_parts: list[str] = []
+        folded_to_source: list[int] = []
+        for source_index, character in enumerate(line):
+            folded = character.casefold()
+            folded_parts.append(folded)
+            folded_to_source.extend([source_index] * len(folded))
+        folded_position = "".join(folded_parts).find(needle)
+        if folded_position < 0:
+            return None
+        start = folded_to_source[folded_position]
+        end = folded_to_source[folded_position + len(needle) - 1] + 1
+        return start, end - start
+
+    def search_text(
+        self,
+        query: str,
+        path: str = "",
+        *,
+        case_sensitive: bool = False,
+        limit: int = 100,
+        max_scan_bytes: int = 10_485_760,
+    ) -> SearchReport:
+        """Search matching lines across bounded UTF-8 files without following links."""
+
+        if not query:
+            raise WorkspaceError("invalid_search", "Search text cannot be empty.")
+        if not 1 <= limit <= 200:
+            raise WorkspaceError("invalid_search", "Search result limit must be between 1 and 200.")
+        self.assert_directory(path)
+        normalized_path = self.normalize(path)
+        needle = query if case_sensitive else query.casefold()
+        matches: list[SearchMatch] = []
+        scanned_files = 0
+        scanned_bytes = 0
+        skipped_files = 0
+        truncated = False
+
+        for entry in self.list_entries(normalized_path, recursive=True):
+            if entry.kind != "file":
+                continue
+            if scanned_bytes + entry.size > max_scan_bytes:
+                truncated = True
+                break
+            scanned_bytes += entry.size
+            try:
+                document = self.read_file(entry.path)
+            except WorkspaceError as exc:
+                if exc.code not in {"binary_file", "file_too_large", "read_failed"}:
+                    raise
+                skipped_files += 1
+                continue
+            scanned_files += 1
+            for line_number, line in enumerate(document.content.splitlines(), 1):
+                if case_sensitive:
+                    column = line.find(needle)
+                    span = None if column < 0 else (column, len(query))
+                else:
+                    span = self._casefold_span(line, needle)
+                if span is None:
+                    continue
+                column, match_length = span
+                matches.append(
+                    SearchMatch(
+                        path=entry.path,
+                        line=line_number,
+                        column=column + 1,
+                        length=match_length,
+                        preview=self._search_preview(line, column),
+                    )
+                )
+                if len(matches) >= limit:
+                    truncated = True
+                    return SearchReport(
+                        query,
+                        normalized_path,
+                        tuple(matches),
+                        scanned_files,
+                        scanned_bytes,
+                        skipped_files,
+                        truncated,
+                    )
+        return SearchReport(
+            query,
+            normalized_path,
+            tuple(matches),
+            scanned_files,
+            scanned_bytes,
+            skipped_files,
+            truncated,
+        )
+
     def read_file(self, path: str) -> FileDocument:
         """Read one bounded UTF-8 text file."""
 
@@ -239,6 +381,12 @@ class Workspace:
             )
         try:
             content_bytes = candidate.read_bytes()
+            if len(content_bytes) > self.max_file_bytes:
+                raise WorkspaceError(
+                    "file_too_large",
+                    f"Files are limited to {self.max_file_bytes} bytes.",
+                    413,
+                )
             content = content_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise WorkspaceError(
@@ -277,6 +425,7 @@ class Workspace:
         content: str,
         *,
         expected_etag: str | None = None,
+        create_only: bool = False,
     ) -> FileDocument:
         """Atomically create or replace a UTF-8 file within configured quotas."""
 
@@ -296,6 +445,10 @@ class Workspace:
         with self._lock:
             old_size = 0
             if candidate.exists():
+                if create_only:
+                    raise WorkspaceError(
+                        "already_exists", "An entry already exists at that path.", 409
+                    )
                 if not candidate.is_file():
                     raise WorkspaceError("not_a_file", "The destination is not a file.")
                 existing = candidate.read_bytes()
@@ -332,7 +485,18 @@ class Workspace:
                     temporary.flush()
                     os.fsync(temporary.fileno())
                     temporary_name = temporary.name
-                os.replace(temporary_name, candidate)
+                if create_only:
+                    os.link(temporary_name, candidate)
+                    Path(temporary_name).unlink()
+                    temporary_name = None
+                else:
+                    os.replace(temporary_name, candidate)
+            except FileExistsError as exc:
+                if temporary_name:
+                    Path(temporary_name).unlink(missing_ok=True)
+                raise WorkspaceError(
+                    "already_exists", "An entry already exists at that path.", 409
+                ) from exc
             except OSError as exc:
                 if temporary_name:
                     Path(temporary_name).unlink(missing_ok=True)
@@ -422,6 +586,7 @@ class Workspace:
 
         entries = self.list_entries("", recursive=True)
         return {
+            "id": self.workspace_id,
             "name": self.root.name,
             "entries": len(entries),
             "usage_bytes": sum(

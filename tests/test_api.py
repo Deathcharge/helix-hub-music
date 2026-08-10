@@ -38,6 +38,11 @@ def test_api_primary_journey(tmp_path: Path) -> None:
         etag = created.json()["file"]["etag"]
         opened = client.get("/api/v1/file", params={"path": "notes/idea.md"})
         assert opened.json()["file"]["content"] == "hello"
+        duplicate = client.put(
+            "/api/v1/file",
+            json={"path": "notes/idea.md", "content": "no", "create_only": True},
+        )
+        assert duplicate.status_code == 409
         saved = client.put(
             "/api/v1/file",
             json={"path": "notes/idea.md", "content": "hello again", "expected_etag": etag},
@@ -45,6 +50,11 @@ def test_api_primary_journey(tmp_path: Path) -> None:
         assert saved.status_code == 200
         listing = client.get("/api/v1/files", params={"recursive": True}).json()
         assert [entry["path"] for entry in listing["entries"]] == ["notes", "notes/idea.md"]
+        search = client.get("/api/v1/search", params={"q": "again"}).json()["search"]
+        assert [(match["path"], match["line"]) for match in search["matches"]] == [
+            ("notes/idea.md", 1)
+        ]
+        assert search["scanned_files"] == 1
         moved = client.post(
             "/api/v1/move",
             json={"source": "notes/idea.md", "destination": "notes/final.md"},

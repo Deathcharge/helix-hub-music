@@ -39,10 +39,20 @@
             <h1>Workspace</h1>
           </div>
           <div class="compact-actions">
+            <button id="import-button" class="icon-button" type="button" title="Import text files" aria-label="Import text files">⇧</button>
             <button id="new-file-button" class="icon-button" type="button" title="New file" aria-label="New file">＋</button>
             <button id="new-folder-button" class="icon-button" type="button" title="New folder" aria-label="New folder">▱</button>
           </div>
         </div>
+        <form id="search-form" class="workspace-search" role="search">
+          <label class="sr-only" for="search-input">Search file contents</label>
+          <span aria-hidden="true">⌕</span>
+          <input id="search-input" name="query" type="search" maxlength="256" autocomplete="off" placeholder="Search file contents">
+          <button id="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden>×</button>
+        </form>
+        <p id="search-status" class="search-status" role="status" aria-live="polite"></p>
+        <div id="search-results" class="search-results" aria-label="Content search results" hidden></div>
+        <input id="file-input" type="file" multiple accept="text/*,.md,.markdown,.json,.yaml,.yml,.toml,.csv,.xml,.svg" hidden>
         <div id="files-loading" class="loading-stack" aria-label="Loading files">
           <span></span><span></span><span></span>
         </div>
@@ -68,6 +78,8 @@
               </div>
             </div>
             <div class="document-actions">
+              <button id="preview-button" class="button ghost" type="button" disabled>Preview</button>
+              <button id="download-button" class="button ghost" type="button" disabled>Download</button>
               <button id="rename-button" class="button ghost" type="button" disabled>Rename</button>
               <button id="delete-button" class="button danger-ghost" type="button" disabled>Delete</button>
               <button id="save-button" class="button primary" type="button" disabled>Save <kbd>Ctrl S</kbd></button>
@@ -80,6 +92,7 @@
           </div>
           <label class="sr-only" for="editor">File editor</label>
           <textarea id="editor" class="editor" spellcheck="false" autocomplete="off" hidden></textarea>
+          <article id="markdown-preview" class="markdown-preview" aria-label="Markdown preview" tabindex="0" hidden></article>
           <footer class="editor-status">
             <span id="editor-message">Ready</span>
             <span id="file-stats"></span>
@@ -139,6 +152,18 @@
           <button id="conflict-cancel" class="button ghost" type="button">Keep editing</button>
           <button id="conflict-reload" class="button ghost" type="button">Reload disk version</button>
           <button id="conflict-overwrite" class="button danger" type="button">Overwrite with my edit</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="draft-dialog" class="dialog">
+      <div>
+        <p class="eyebrow">Unsaved draft found</p>
+        <h2>Restore your draft?</h2>
+        <p id="draft-message">This browser tab retained unsaved text from a page reload.</p>
+        <div class="dialog-actions">
+          <button id="draft-discard" class="button ghost" type="button">Discard draft</button>
+          <button id="draft-restore" class="button primary" type="button">Restore draft</button>
         </div>
       </div>
     </dialog>

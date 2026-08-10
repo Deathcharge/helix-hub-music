@@ -37,6 +37,7 @@ class AppSettings:
     max_total_bytes: int = 52_428_800
     max_entries: int = 2_000
     max_request_bytes: int = 1_310_720
+    max_search_bytes: int = 10_485_760
     max_sessions: int = 128
     session_ttl_seconds: int = 21_600
     allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
@@ -141,6 +142,7 @@ class WriteFileRequest(StrictModel):
     path: str = Field(min_length=1, max_length=512)
     content: str = Field(max_length=1_048_576)
     expected_etag: str | None = Field(default=None, min_length=64, max_length=64)
+    create_only: bool = False
 
 
 class FolderRequest(StrictModel):
@@ -311,7 +313,9 @@ def create_app(
 
     @router.get("/workspace")
     def workspace_summary() -> dict[str, Any]:
-        return {"workspace": workspace.summary(), "version": __version__}
+        summary = workspace.summary()
+        summary["limits"]["max_search_bytes"] = resolved_settings.max_search_bytes
+        return {"workspace": summary, "version": __version__}
 
     @router.get("/files")
     def list_files(
@@ -328,10 +332,29 @@ def create_app(
     def read_file(path: Annotated[str, Query(min_length=1, max_length=512)]) -> dict[str, Any]:
         return {"file": workspace.read_file(path).to_dict()}
 
+    @router.get("/search")
+    def search_files(
+        q: Annotated[str, Query(min_length=1, max_length=256)],
+        path: Annotated[str, Query(max_length=512)] = "",
+        case_sensitive: bool = False,
+        limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    ) -> dict[str, Any]:
+        report = workspace.search_text(
+            q,
+            path,
+            case_sensitive=case_sensitive,
+            limit=limit,
+            max_scan_bytes=resolved_settings.max_search_bytes,
+        )
+        return {"search": report.to_dict()}
+
     @router.put("/file")
     def write_file(payload: WriteFileRequest) -> dict[str, Any]:
         document = workspace.write_file(
-            payload.path, payload.content, expected_etag=payload.expected_etag
+            payload.path,
+            payload.content,
+            expected_etag=payload.expected_etag,
+            create_only=payload.create_only,
         )
         return {"file": document.to_dict()}
 

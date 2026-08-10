@@ -23,7 +23,7 @@ Returns the service name, version, and `ok` status. It does not expose the host 
 
 `GET /api/v1/workspace`
 
-Returns the workspace display name, entry count, storage use, configured limits, and application version.
+Returns an opaque per-process workspace ID, display name, entry count, storage use, configured limits, and application version. The random ID distinguishes tab-scoped recovery drafts during the current server process without exposing or hashing the absolute host path.
 
 ## List entries
 
@@ -40,6 +40,12 @@ Returns the workspace display name, entry count, storage use, configured limits,
 
 Returns a `file` object with UTF-8 `content`, byte `size`, timestamp, and SHA-256 `etag`.
 
+## Search file contents
+
+`GET /api/v1/search?q=decision&path=&case_sensitive=false&limit=100`
+
+Search walks regular UTF-8 files beneath `path` without following links. Each match contains `path`, one-based `line` and `column`, source-character `length`, and a bounded plain-text `preview`. The explicit span keeps Unicode case-folded matches addressable in the editor. The report also returns `scanned_files`, `scanned_bytes`, `skipped_files`, and `truncated`. Searches stop at the configured byte ceiling or result limit rather than consuming unbounded local resources.
+
 ## Create or save a file
 
 `PUT /api/v1/file`
@@ -48,11 +54,12 @@ Returns a `file` object with UTF-8 `content`, byte `size`, timestamp, and SHA-25
 {
   "path": "notes/idea.md",
   "content": "A durable thought.\n",
-  "expected_etag": null
+  "expected_etag": null,
+  "create_only": true
 }
 ```
 
-Omit or set `expected_etag` to `null` for creation. Send the exact 64-character ETag from the most recent read when saving an open file. A mismatch returns HTTP 409 with `edit_conflict`.
+Use `create_only: true` for creation so an existing path returns HTTP 409 instead of being overwritten. Send the exact 64-character ETag from the most recent read when saving an open file. A mismatch returns HTTP 409 with `edit_conflict`. An intentional replacement should first read the current file and then send its ETag; omitting both guards is supported for backwards compatibility but is not recommended.
 
 ## Create a folder
 

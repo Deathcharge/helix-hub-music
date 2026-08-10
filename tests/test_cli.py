@@ -26,7 +26,7 @@ def test_init_rejects_an_existing_file(tmp_path: Path, capsys: pytest.CaptureFix
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit, match="0"):
         cli.main(["--version"])
-    assert "samsarix-workspace 0.1.0" in capsys.readouterr().out
+    assert "samsarix-workspace 0.2.0" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "example.test", "::"])
