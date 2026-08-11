@@ -9,22 +9,64 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from samsarix_workspace import __version__
 from samsarix_workspace.shell import ShellResult, VirtualShell
 from samsarix_workspace.workspace import Workspace, WorkspaceError
+
+
+def normalize_host_authority(authority: str) -> str | None:
+    """Return a case-folded host without an optional authority port."""
+
+    value = authority.strip()
+    if not value or any(character.isspace() for character in value):
+        return None
+    if value.startswith("["):
+        closing_bracket = value.find("]")
+        if closing_bracket <= 1:
+            return None
+        host = value[1:closing_bracket]
+        suffix = value[closing_bracket + 1 :]
+        if suffix and (not suffix.startswith(":") or not suffix[1:].isdigit()):
+            return None
+        return host.casefold()
+    if "[" in value or "]" in value:
+        return None
+    if value.count(":") == 1:
+        host, port = value.rsplit(":", 1)
+        if not host or not port.isdigit():
+            return None
+        value = host
+    return value.casefold()
+
+
+def normalize_allowed_hosts(hosts: Iterable[str]) -> tuple[str, ...]:
+    """Validate and deduplicate an explicit host allowlist."""
+
+    normalized: list[str] = []
+    for configured in hosts:
+        value = configured.strip()
+        if "*" in value:
+            raise ValueError("Allowed hosts must be explicit; wildcard hosts are not supported.")
+        host = normalize_host_authority(value)
+        if host is None:
+            raise ValueError(f"Invalid allowed host: {configured!r}.")
+        if host not in normalized:
+            normalized.append(host)
+    if not normalized:
+        raise ValueError("At least one explicit allowed host is required.")
+    return tuple(normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,8 +93,35 @@ class AppSettings:
         return cls(
             workspace_root=root,
             token=token,
-            allowed_hosts=allowed_hosts or ("localhost", "127.0.0.1", "::1"),
+            allowed_hosts=normalize_allowed_hosts(
+                allowed_hosts or ("localhost", "127.0.0.1", "::1")
+            ),
         )
+
+
+class ExplicitTrustedHostMiddleware:
+    """Reject requests whose normalized Host is not explicitly allowed."""
+
+    def __init__(self, app: ASGIApp, allowed_hosts: Iterable[str]) -> None:
+        self.app = app
+        self.allowed_hosts = frozenset(normalize_allowed_hosts(allowed_hosts))
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        authorities: list[str] = []
+        for key, value in scope.get("headers", []):
+            if key.lower() == b"host":
+                authorities.append(value.decode("latin-1"))
+        if (
+            len(authorities) != 1
+            or normalize_host_authority(authorities[0]) not in self.allowed_hosts
+        ):
+            response = PlainTextResponse("Invalid host header", status_code=400)
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 class RequestBodyLimitMiddleware:
@@ -226,6 +295,7 @@ def create_app(
     resolved_settings = settings or AppSettings.from_environment()
     if resolved_settings.token is not None and not resolved_settings.token.isascii():
         raise ValueError("SAMSARIX_WORKSPACE_TOKEN must contain only ASCII characters")
+    allowed_hosts = normalize_allowed_hosts(resolved_settings.allowed_hosts)
     workspace = Workspace(
         resolved_settings.workspace_root,
         max_file_bytes=resolved_settings.max_file_bytes,
@@ -260,13 +330,12 @@ def create_app(
         response.headers["X-Frame-Options"] = "DENY"
         return response
 
-    # Added after the response-header middleware so it is the outermost ASGI
-    # layer and can terminate streamed oversized bodies before JSON parsing.
+    # Both guards run outside request parsing. The host gate is added last so an
+    # untrusted authority is rejected before the request body is consumed.
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=resolved_settings.max_request_bytes)
     app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=list(resolved_settings.allowed_hosts),
-        www_redirect=False,
+        ExplicitTrustedHostMiddleware,
+        allowed_hosts=allowed_hosts,
     )
 
     @app.exception_handler(WorkspaceError)

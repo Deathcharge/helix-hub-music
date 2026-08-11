@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from samsarix_workspace.shell import VirtualShell
 from samsarix_workspace.workspace import Workspace
 
@@ -67,6 +69,12 @@ def test_hidden_files_clear_and_output_bound(workspace: Workspace) -> None:
     tiny_shell = VirtualShell(workspace, max_output_chars=3)
     assert len(tiny_shell.execute("help").output) == 3
     assert shell.execute("clear").clear is True
+
+
+def test_negative_output_limit_is_rejected(workspace: Workspace) -> None:
+    with pytest.raises(ValueError, match="cannot be negative"):
+        VirtualShell(workspace, max_output_chars=-1)
+    assert VirtualShell(workspace, max_output_chars=0).execute("help").output == ""
 
 
 def test_command_allowlist_is_initialized_once_and_introspectable(workspace: Workspace) -> None:

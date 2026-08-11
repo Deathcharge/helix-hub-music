@@ -154,14 +154,14 @@ Current official documentation shows a stable set of user expectations around br
 - [Nextcloud Files](https://docs.nextcloud.com/server/latest/user_manual/en/files/access_webgui.html) treats search, text preview, upload/download, recent files, deleted-file recovery, and version history as recognizable file-workspace jobs.
 - [Obsidian's storage model](https://obsidian.md/help/Files%2Band%2Bfolders/How%2BObsidian%2Bstores%2Bdata) reinforces the value of ordinary local files rather than an opaque hosted data model.
 - The [CommonMark specification](https://spec.commonmark.org/current/) defines a much broader Markdown grammar than this release claims. Samsarix therefore labels its dependency-free renderer “safe basic Markdown preview” rather than claiming full CommonMark conformance.
-- Starlette's official [TrustedHostMiddleware documentation](https://www.starlette.io/middleware/#trustedhostmiddleware) identifies Host validation as the control for HTTP Host-header attacks; `0.2.0` applies it before every route.
+- Starlette's official [TrustedHostMiddleware documentation](https://www.starlette.io/middleware/#trustedhostmiddleware) identifies Host validation as the control for HTTP Host-header attacks. `0.2.0` applies an explicit equivalent before every route, with case-insensitive hostname comparison, bracketed-IPv6 handling, duplicate rejection, and no wildcard allowlists.
 
 The selected real-world job is document and artifact review: import a small set of UTF-8 notes, logs, configuration, code, or AI-generated text artifacts into a chosen local folder; find relevant lines; inspect Markdown safely; edit with recoverable unsaved state and explicit external-change handling; then save or download the result. This expands the complete journey without introducing a real shell, code execution, cloud sync, accounts, a database, or a frontend dependency supply chain.
 
 Implemented in `0.2.0`:
 
 - Bounded cross-file content search with path/line navigation, result limits, byte limits, and scan accounting
-- Fatal UTF-8 browser import, per-file size checks, create-only writes, collision confirmation, and current-document download
+- UTF-8 browser import, per-file size checks, create-only writes, collision confirmation, and current-document download
 - Basic Markdown block/inline preview built only with DOM nodes and safe link protocols; raw HTML is displayed as text
 - One tab-scoped unsaved draft with explicit restore/discard behavior
 - Reload, keep-editing, or exact-checkpoint overwrite choices for external file changes or deletions
@@ -202,9 +202,9 @@ The final Windows/Python 3.11 release-candidate run produced:
 | --- | --- |
 | Ruff lint and format check | Passed with no findings; 11 Python files formatted |
 | Mypy strict package check | Passed; 6 source files checked |
-| Pytest with branch coverage | 48 passed, 1 platform-specific FIFO test skipped; 92.46% total coverage |
+| Pytest with branch coverage | 56 passed, 1 platform-specific FIFO test skipped; 90.87% total coverage |
 | JavaScript syntax check | Passed with Node.js `--check` |
-| Headed Chromium document-review journey | Imported and saved a real UTF-8 file, rendered raw HTML inertly, navigated a Unicode case-folded search to the exact `ße` span, and verified the 390×844 responsive layout without horizontal overflow |
+| Headed Chromium document-review journey | Imported and saved a real UTF-8 file, rendered raw HTML inertly, navigated Unicode searches to exact source spans, verified astral-character selection at UTF-16 offsets 19–27, proved duplicate Ctrl+S input issued one PUT, downloaded a real file, and verified the 390×844 responsive layout without horizontal overflow |
 | Accessibility sanity checks | Accessibility snapshot exposed labeled regions and controls; document language was `en`, with no duplicate IDs or unlabeled empty buttons |
 | Browser console | Zero errors and zero warnings after fixes |
 | Python build | Created sdist and universal wheel successfully in isolated build environments |
@@ -215,8 +215,8 @@ The final Windows/Python 3.11 release-candidate run produced:
 
 Final artifact SHA-256 digests:
 
-- `samsarix_workspace-0.2.0-py3-none-any.whl`: `9cd067c57c4d6c22bedb951f4eb4bdcda9e1c7c475dc84d01185706498906daa`
-- `samsarix_workspace-0.2.0.tar.gz`: `0eaa7732df8a733822b6951f4684b6f012fb5d4bf96619610ebe590e371c5056`
+- `samsarix_workspace-0.2.0-py3-none-any.whl`: `017a98819473d17b43d2a2f98b71a67406f2952d8735f1b05c37d681726c1111`
+- `samsarix_workspace-0.2.0.tar.gz`: `77f169024ef7f3b3380e95bf8f6dba70159a74fa0d104e5d47aaf93d6be5c059`
 
 The single skipped test covers POSIX FIFO classification and is expected on Windows; Windows hard-link and symlink regressions executed successfully. No test depends on the legacy globally installed `helix-unified` package.
 

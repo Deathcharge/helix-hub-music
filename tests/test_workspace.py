@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,26 @@ def test_search_validation_and_preview_bounds(workspace: Workspace) -> None:
         search_workspace.search_text("")
     with raises_code("invalid_search"):
         search_workspace.search_text("x", limit=0)
+    with raises_code("invalid_search"):
+        search_workspace.search_text("x", max_scan_bytes=-1)
+
+
+def test_search_read_is_bounded_when_entry_size_is_stale(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace.write_file("growing.txt", "needle beyond the byte budget")
+    stale_entry = replace(workspace.list_entries()[0], size=1)
+    monkeypatch.setattr(
+        workspace,
+        "list_entries",
+        lambda _path="", *, recursive=False: [stale_entry],
+    )
+
+    report = workspace.search_text("needle", max_scan_bytes=5)
+
+    assert report.matches == ()
+    assert report.scanned_bytes == 6
+    assert report.truncated is True
 
 
 @pytest.mark.parametrize(

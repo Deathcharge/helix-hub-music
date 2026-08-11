@@ -54,6 +54,8 @@ This is a safe virtual terminal, not an operating-system shell."""
         max_command_chars: int = 2_048,
         max_output_chars: int = 65_536,
     ) -> None:
+        if max_output_chars < 0:
+            raise ValueError("max_output_chars cannot be negative")
         self.workspace = workspace
         self.cwd = ""
         self.max_command_chars = max_command_chars

@@ -9,6 +9,7 @@ const state = {
   selectedKind: null,
   etag: null,
   dirty: false,
+  saving: false,
   terminalSession: null,
   entryMode: "file",
   searchQuery: "",
@@ -97,7 +98,7 @@ function showError(error) {
 function updateDirty(dirty) {
   state.dirty = dirty;
   elements["dirty-indicator"].hidden = !dirty;
-  elements["save-button"].disabled = !state.selectedPath || !dirty;
+  elements["save-button"].disabled = !state.selectedPath || !dirty || state.saving;
   elements["editor-message"].textContent = dirty ? "Unsaved changes" : "Saved";
 }
 
@@ -340,8 +341,14 @@ function focusSearchMatch(match) {
   const lines = elements.editor.value.split("\n");
   const preceding = lines.slice(0, Math.max(0, match.line - 1));
   const offset = preceding.reduce((total, line) => total + line.length + 1, 0);
-  const start = Math.min(elements.editor.value.length, offset + Math.max(0, match.column - 1));
-  const end = Math.min(elements.editor.value.length, start + match.length);
+  const target = lines[match.line - 1] || "";
+  const points = Array.from(target);
+  const pointStart = Math.min(points.length, Math.max(0, match.column - 1));
+  const pointEnd = Math.min(points.length, pointStart + Math.max(0, match.length));
+  const prefix = points.slice(0, pointStart).join("");
+  const matched = points.slice(pointStart, pointEnd).join("");
+  const start = Math.min(elements.editor.value.length, offset + prefix.length);
+  const end = Math.min(elements.editor.value.length, start + matched.length);
   elements.editor.focus();
   elements.editor.setSelectionRange(start, end);
 }
@@ -438,11 +445,13 @@ function closeDocument() {
 }
 
 async function saveFile() {
-  if (!state.selectedPath || state.selectedKind !== "file" || !state.dirty) return;
+  if (!state.selectedPath || state.selectedKind !== "file" || !state.dirty || state.saving) return;
   await persistFile(elements.editor.value, state.etag);
 }
 
 async function persistFile(content, expectedEtag) {
+  if (state.saving) return;
+  state.saving = true;
   elements["save-button"].disabled = true;
   elements["editor-message"].textContent = "Saving…";
   try {
@@ -463,6 +472,9 @@ async function persistFile(content, expectedEtag) {
     } else {
       showError(error);
     }
+  } finally {
+    state.saving = false;
+    elements["save-button"].disabled = !state.selectedPath || !state.dirty;
   }
 }
 
@@ -584,9 +596,10 @@ function downloadFile() {
   link.download = state.selectedPath.split("/").pop() || "document.txt";
   document.body.append(link);
   link.click();
+  const name = link.download;
   link.remove();
-  URL.revokeObjectURL(url);
-  toast(`Downloaded ${link.download}${state.dirty ? " with unsaved edits" : ""}`);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  toast(`Downloaded ${name}${state.dirty ? " with unsaved edits" : ""}`);
 }
 
 function isMarkdown(path) {

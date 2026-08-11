@@ -95,7 +95,32 @@ def test_host_header_is_validated_before_routes(tmp_path: Path) -> None:
     with client_for(tmp_path) as client:
         rejected = client.get("/healthz", headers={"Host": "attacker.example"})
         assert rejected.status_code == 400
-        assert rejected.text == "Invalid host header"
+        assert "status" not in rejected.text
+
+
+def test_host_header_comparison_normalizes_case_ports_and_ipv6(tmp_path: Path) -> None:
+    with client_for(tmp_path, allowed_hosts=("Example.TEST", "::1")) as client:
+        hostname = client.get("/healthz", headers={"Host": "EXAMPLE.test:8765"})
+        ipv6 = client.get("/healthz", headers={"Host": "[::1]:8765"})
+        assert hostname.json()["status"] == "ok"
+        assert ipv6.json()["status"] == "ok"
+
+
+def test_multiple_host_headers_are_rejected(tmp_path: Path) -> None:
+    with client_for(tmp_path) as client:
+        response = client.get(
+            "/healthz",
+            headers=[("Host", "testserver"), ("Host", "attacker.example")],
+        )
+        assert response.status_code == 400
+        assert "status" not in response.text
+
+
+@pytest.mark.parametrize("allowed_host", ["*", "*.example.test"])
+def test_wildcard_host_configuration_is_rejected(tmp_path: Path, allowed_host: str) -> None:
+    settings = AppSettings(workspace_root=tmp_path / "workspace", allowed_hosts=(allowed_host,))
+    with pytest.raises(ValueError, match="wildcard hosts"):
+        create_app(settings)
 
 
 def test_non_ascii_bearer_token_configuration_is_rejected(tmp_path: Path) -> None:

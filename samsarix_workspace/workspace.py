@@ -288,6 +288,19 @@ class Workspace:
         end = folded_to_source[folded_position + len(needle) - 1] + 1
         return start, end - start
 
+    def _read_file_bytes(self, path: str, *, limit: int) -> tuple[Path, bytes]:
+        """Read no more than ``limit`` bytes plus one detection byte."""
+
+        candidate = self._safe_path(path, allow_root=False, must_exist=True)
+        if not candidate.is_file():
+            raise WorkspaceError("not_a_file", "The requested path is not a file.")
+        try:
+            with candidate.open("rb") as document:
+                content_bytes = document.read(limit + 1)
+        except OSError as exc:
+            raise WorkspaceError("read_failed", "The file could not be read.", 500) from exc
+        return candidate, content_bytes
+
     def search_text(
         self,
         query: str,
@@ -303,6 +316,8 @@ class Workspace:
             raise WorkspaceError("invalid_search", "Search text cannot be empty.")
         if not 1 <= limit <= 200:
             raise WorkspaceError("invalid_search", "Search result limit must be between 1 and 200.")
+        if max_scan_bytes < 0:
+            raise WorkspaceError("invalid_search", "Search byte limit cannot be negative.")
         self.assert_directory(path)
         normalized_path = self.normalize(path)
         needle = query if case_sensitive else query.casefold()
@@ -315,19 +330,36 @@ class Workspace:
         for entry in self.list_entries(normalized_path, recursive=True):
             if entry.kind != "file":
                 continue
-            if scanned_bytes + entry.size > max_scan_bytes:
+            remaining_bytes = max_scan_bytes - scanned_bytes
+            if remaining_bytes <= 0:
                 truncated = True
                 break
-            scanned_bytes += entry.size
             try:
-                document = self.read_file(entry.path)
+                _candidate, content_bytes = self._read_file_bytes(
+                    entry.path,
+                    limit=min(remaining_bytes, self.max_file_bytes),
+                )
             except WorkspaceError as exc:
-                if exc.code not in {"binary_file", "file_too_large", "read_failed"}:
+                if exc.code != "read_failed":
                     raise
                 skipped_files += 1
                 continue
+            scanned_bytes += len(content_bytes)
+            oversized = len(content_bytes) > self.max_file_bytes
+            if oversized:
+                skipped_files += 1
+            if len(content_bytes) > remaining_bytes:
+                truncated = True
+                break
+            if oversized:
+                continue
+            try:
+                content = content_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                skipped_files += 1
+                continue
             scanned_files += 1
-            for line_number, line in enumerate(document.content.splitlines(), 1):
+            for line_number, line in enumerate(content.splitlines(), 1):
                 if case_sensitive:
                     column = line.find(needle)
                     span = None if column < 0 else (column, len(query))
@@ -369,18 +401,8 @@ class Workspace:
     def read_file(self, path: str) -> FileDocument:
         """Read one bounded UTF-8 text file."""
 
-        candidate = self._safe_path(path, allow_root=False, must_exist=True)
-        if not candidate.is_file():
-            raise WorkspaceError("not_a_file", "The requested path is not a file.")
-        size = candidate.stat().st_size
-        if size > self.max_file_bytes:
-            raise WorkspaceError(
-                "file_too_large",
-                f"Files are limited to {self.max_file_bytes} bytes.",
-                413,
-            )
         try:
-            content_bytes = candidate.read_bytes()
+            candidate, content_bytes = self._read_file_bytes(path, limit=self.max_file_bytes)
             if len(content_bytes) > self.max_file_bytes:
                 raise WorkspaceError(
                     "file_too_large",
@@ -394,11 +416,15 @@ class Workspace:
             ) from exc
         except OSError as exc:
             raise WorkspaceError("read_failed", "The file could not be read.", 500) from exc
+        try:
+            modified_at = self._timestamp(candidate.stat())
+        except OSError as exc:
+            raise WorkspaceError("read_failed", "The file could not be read.", 500) from exc
         return FileDocument(
             path=self.normalize(path, allow_root=False),
             content=content,
             size=len(content_bytes),
-            modified_at=self._timestamp(candidate.stat()),
+            modified_at=modified_at,
             etag=self._etag_bytes(content_bytes),
         )
 

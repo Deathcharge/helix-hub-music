@@ -14,7 +14,7 @@ from pathlib import Path
 import uvicorn
 
 from samsarix_workspace import __version__
-from samsarix_workspace.api import AppSettings, create_app
+from samsarix_workspace.api import AppSettings, create_app, normalize_allowed_hosts
 
 WELCOME = """# Welcome to Samsarix Workspace
 
@@ -122,12 +122,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     wildcard_bind = args.host in {"0.0.0.0", "::"}
     if wildcard_bind and not args.allowed_host:
         parser.error("wildcard binding requires at least one explicit --allowed-host")
+    try:
+        explicit_hosts = normalize_allowed_hosts(args.allowed_host) if args.allowed_host else ()
+    except ValueError as exc:
+        parser.error(str(exc))
     if not wildcard_bind:
         defaults.append(args.host)
-    allowed_hosts = tuple(dict.fromkeys([*defaults, *args.allowed_host]))
+    try:
+        allowed_hosts = normalize_allowed_hosts([*defaults, *explicit_hosts])
+    except ValueError as exc:
+        parser.error(str(exc))
     app = create_app(AppSettings(workspace_root=root, token=token, allowed_hosts=allowed_hosts))
     url_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
-    url = f"http://{url_host}:{args.port}"
+    display_host = f"[{url_host}]" if ":" in url_host and not url_host.startswith("[") else url_host
+    url = f"http://{display_host}:{args.port}"
     print(f"Samsarix Workspace: {url}")
     print(f"Workspace folder: {root}")
     if token:

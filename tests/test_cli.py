@@ -63,6 +63,18 @@ def test_wildcard_binding_requires_an_allowed_host(
     assert "requires at least one explicit --allowed-host" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("allowed_host", ["*", "*.example.test"])
+def test_wildcard_binding_rejects_wildcard_allowed_hosts(
+    allowed_host: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("SAMSARIX_WORKSPACE_TOKEN", "a-secure-token-with-entropy")
+    with pytest.raises(SystemExit, match="2"):
+        cli.main(["serve", "--host", "0.0.0.0", "--allowed-host", allowed_host])
+    assert "wildcard hosts are not supported" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])
 def test_serve_loopback_builds_app_and_runs(
     host: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -83,8 +95,9 @@ def test_serve_remote_with_token_and_open_browser(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     opened: list[str] = []
+    served_apps: list[object] = []
     monkeypatch.setenv("SAMSARIX_WORKSPACE_TOKEN", "a-secure-token-with-entropy")
-    monkeypatch.setattr(cli.uvicorn, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **_kwargs: served_apps.append(app))
     monkeypatch.setattr(
         cli.threading, "Timer", lambda _delay, fn, args: SimpleNamespace(start=lambda: fn(*args))
     )
@@ -97,11 +110,12 @@ def test_serve_remote_with_token_and_open_browser(
                 "--host",
                 "0.0.0.0",
                 "--allowed-host",
-                "workspace.example",
+                "Workspace.Example",
                 "--open",
             ]
         )
         == 0
     )
     assert opened == ["http://127.0.0.1:8765"]
+    assert "workspace.example" in served_apps[0].state.settings.allowed_hosts
     assert "Bearer-token protection: enabled" in capsys.readouterr().out
