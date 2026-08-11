@@ -2,14 +2,16 @@
 
 Samsarix Workspace is a small, local-first browser workspace for persistent text files and safe virtual commands. Point it at a folder, open the browser UI, and create, edit, rename, move, inspect, or delete files without giving the browser an operating-system shell.
 
-This repository was previously named `helix-web-os`. The GitHub URL still uses that legacy name, but the product and company identity are now **Samsarix Workspace** by **Samsarix LLC**.
+This repository was previously named `helix-web-os`; that history remains in Git. The product and company identity are now **Samsarix Workspace** by **Samsarix LLC**.
 
-> **Maturity:** `0.1.0` alpha release candidate. The primary local workflow is implemented and tested. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal.
+> **Maturity:** `0.2.0` alpha release candidate. The primary local review workflow is implemented and tested. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal.
 
 ## What works
 
 - Persistent, sandboxed file and folder operations under one configured root
-- UTF-8 text editor with manual save, unsaved-state warning, and optimistic conflict detection
+- UTF-8 editor with bounded workspace content search, multi-file import, and current-document download
+- Safe basic Markdown preview that renders through DOM text nodes and never executes raw document HTML
+- Tab-scoped draft recovery plus an explicit reload-or-overwrite flow for disk conflicts
 - Atomic writes, per-file and total-storage quotas, and bounded file listings
 - A virtual terminal for `ls`, `cat`, `head`, `tail`, `wc`, `find`, `grep`, `mkdir`, `touch`, `mv`, and `rm`
 - FastAPI JSON API with a stable error envelope and OpenAPI document
@@ -25,7 +27,7 @@ Requirements: Python 3.11 or newer.
 
 ```bash
 git clone https://github.com/Deathcharge/samsarix-workspace.git
-cd helix-web-os
+cd samsarix-workspace
 python -m venv .venv
 ```
 
@@ -51,6 +53,8 @@ samsarix-workspace serve ../my-workspace --open
 
 Then open `http://127.0.0.1:8765`. Your files remain in `../my-workspace`; uninstalling the package does not remove them.
 
+Use **Import** to bring one or more UTF-8 text files into the root (or a selected folder), search their contents from the sidebar, open a result at its matching line, preview Markdown, edit, and download the current document. Unsaved text is retained only in this browser tab for reload recovery; saving still requires an explicit action.
+
 You can also run the module form:
 
 ```bash
@@ -63,15 +67,15 @@ The default listener is `127.0.0.1` and does not require a token. A non-loopback
 
 ```powershell
 $env:SAMSARIX_WORKSPACE_TOKEN = "replace-with-a-long-random-secret"
-samsarix-workspace serve ../my-workspace --host 0.0.0.0
+samsarix-workspace serve ../my-workspace --host 0.0.0.0 --allowed-host workspace.example
 ```
 
 ```bash
 export SAMSARIX_WORKSPACE_TOKEN="replace-with-a-long-random-secret"
-samsarix-workspace serve ../my-workspace --host 0.0.0.0
+samsarix-workspace serve ../my-workspace --host 0.0.0.0 --allowed-host workspace.example
 ```
 
-For any untrusted network, put the service behind a TLS reverse proxy and network access controls. The built-in token is a single-workspace gate, not multi-user identity or tenant isolation. Tokens are read from the environment, never from a CLI argument, and the browser retains a submitted token only in tab-scoped session storage.
+Replace `workspace.example` with the hostname clients actually use; repeat `--allowed-host` for aliases. For any untrusted network, put the service behind a TLS reverse proxy and network access controls. The built-in token is a single-workspace gate, not multi-user identity or tenant isolation. Tokens are ASCII secrets read from the environment, never from a CLI argument, and the browser retains a submitted token only in tab-scoped session storage.
 
 ## Deliberate limits
 
@@ -83,6 +87,7 @@ Defaults are conservative:
 | Workspace regular-file storage | 50 MiB |
 | Listed entries | 2,000 |
 | HTTP request body | 1.25 MiB |
+| Text scanned per search | 10 MiB |
 | Active virtual-terminal sessions | 128 |
 | Session idle lifetime | 6 hours |
 
@@ -95,7 +100,7 @@ Current non-goals:
 - Code execution, kernels, language servers, Git UI, or package installation
 - Cloud sync, collaboration, accounts, organizations, billing, or telemetry
 - AI chat or model-provider integration
-- Autosave or version history
+- Background autosave, trash, or version history
 
 Those boundaries are part of the security model, not missing claims hidden behind marketing language.
 
@@ -106,13 +111,14 @@ The OpenAPI document is available at `/openapi.json`. The versioned endpoints ar
 - `GET /healthz`
 - `GET /api/v1/workspace`
 - `GET /api/v1/files`
+- `GET /api/v1/search`
 - `GET|PUT /api/v1/file`
 - `POST /api/v1/folders`
 - `POST /api/v1/move`
 - `DELETE /api/v1/entry`
 - `POST /api/v1/terminal/execute`
 
-See [docs/API_REFERENCE.md](docs/API_REFERENCE.md) for payloads and errors.
+See the [API reference](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/API_REFERENCE.md) for payloads and errors.
 
 ## Development
 
@@ -125,14 +131,14 @@ python -m pytest
 python -m build
 ```
 
-The test gate requires at least 90% branch-aware coverage of the Python package. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution and sign-off rules.
+The test gate requires at least 90% branch-aware coverage of the Python package. See the [contribution guide](https://github.com/Deathcharge/samsarix-workspace/blob/main/CONTRIBUTING.md) for contribution and sign-off rules.
 
 ## Product and security notes
 
-- [Productization record](docs/PRODUCTIZATION.md) — forensic baseline, product decision, threat model, completed work, and deferred backlog
-- [Getting started](docs/GETTING_STARTED.md) — installation and operating guide
-- [Security policy](SECURITY.md) — supported version, safe deployment, and private reporting
-- [Licensing guide](LICENSING.md) — practical AGPL explanation and credit expectations
+- [Productization record](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/PRODUCTIZATION.md) — forensic baseline, product decision, threat model, completed work, and deferred backlog
+- [Getting started](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/GETTING_STARTED.md) — installation and operating guide
+- [Security policy](https://github.com/Deathcharge/samsarix-workspace/blob/main/SECURITY.md) — supported version, safe deployment, and private reporting
+- [Licensing guide](https://github.com/Deathcharge/samsarix-workspace/blob/main/LICENSING.md) — practical AGPL explanation and credit expectations
 
 ## Support
 
@@ -144,4 +150,4 @@ The test gate requires at least 90% branch-aware coverage of the Python package.
 
 Copyright © 2026 Samsarix LLC.
 
-Samsarix Workspace is licensed under the [GNU Affero General Public License v3.0 only](LICENSE). If you modify it and let users interact with that version over a network, the AGPL generally requires offering those users the corresponding source. See [LICENSING.md](LICENSING.md); this summary is not legal advice.
+Samsarix Workspace is licensed under the [GNU Affero General Public License v3.0 only](https://github.com/Deathcharge/samsarix-workspace/blob/main/LICENSE). If you modify it and let users interact with that version over a network, the AGPL generally requires offering those users the corresponding source. See the [licensing guide](https://github.com/Deathcharge/samsarix-workspace/blob/main/LICENSING.md); this summary is not legal advice.

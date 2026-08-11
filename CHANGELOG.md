@@ -6,6 +6,27 @@ Notable changes are recorded here. Versions follow [Semantic Versioning](https:/
 
 No unreleased changes yet.
 
+## [0.2.0] - 2026-08-10
+
+### Added
+
+- Bounded full-workspace UTF-8 content search with matching line previews and resource accounting
+- Browser multi-file import with fatal UTF-8 decoding, size checks, collision confirmation, and create-only writes
+- Current-document download and dependency-free safe basic Markdown preview
+- Tab-scoped unsaved-draft recovery and an explicit disk-conflict reload/overwrite dialog
+- Host-header validation across every route and explicit allowed-host configuration for external serving
+
+### Changed
+
+- File creation is now create-only, preventing an existing document from being silently emptied
+- Workspace summaries derive entry count and usage in one traversal; entry metadata uses one `lstat`
+- Virtual command dispatch is persistent and introspectable, and tiny output ceilings are enforced exactly
+- HTTP bearer tokens are restricted to ASCII and compared as constant-time byte strings
+- Packaging metadata now requires the setuptools version that supports SPDX license expressions
+- Unicode case-folded searches report exact source-character spans, including length-changing folds
+- Create-only writes claim the destination atomically and workspace draft IDs no longer derive from host paths
+- Package-index README links now resolve to canonical repository documentation
+
 ## [0.1.0] - 2026-07-28
 
 ### Added

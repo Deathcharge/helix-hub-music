@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=75,<82"]
+requires = ["setuptools>=77,<84"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "samsarix-workspace"
-version = "0.1.0"
+version = "0.2.0"
 description = "A small, local-first browser workspace for files and safe virtual commands."
 readme = "README.md"
 requires-python = ">=3.11"
