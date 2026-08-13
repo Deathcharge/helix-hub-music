@@ -1,10 +1,10 @@
 # Productization record
 
-Date: 2026-07-28
+Date: 2026-08-10
 
 Baseline revision: `64ad942bbf9e7f006a6ac481933587559121f50b`
 
-Product: Samsarix Workspace `0.1.0`
+Product: Samsarix Workspace `0.2.0`
 
 Owner: Samsarix LLC
 
@@ -74,10 +74,9 @@ Removed because they were unsupported fragments:
 - Invented pricing, subscriptions, marketplace, provider routing, real-time collaboration, and production-readiness claims
 - Mock-only tests and broad unpinned requirements files
 
-Deferred deliberately:
+Deferred deliberately after `0.2.0`:
 
-- Binary preview and download/upload UX
-- Autosave, recovery drafts, history, or version control
+- Binary/rich-media preview, background autosave, recoverable trash, and version history
 - Multi-user identity, authorization, tenant isolation, and audit logs
 - Collaboration, cloud sync, deployment automation, and hosted operations
 - A real shell, code execution, AI provider access, plugins, or extensions
@@ -90,6 +89,7 @@ Browser UI (static HTML/CSS/JS)
             │ same-origin JSON + optional bearer token
             ▼
 FastAPI application
+   ├── trusted Host allowlist
    ├── request-stream size gate
    ├── stable validation/error envelope
    ├── bounded server-issued shell-session LRU
@@ -119,15 +119,15 @@ A complete pre-change security scan of all 25 tracked files produced seven repor
 | Symlink read/write escape | Focused reproductions read and wrote outside the configured root through an in-root link | Every public path is relative, raw traversal segments are rejected, and every existing path component is checked for symlinks before access; hard-linked files are blocked too |
 | Anonymous demo limiter bypass / paid-provider amplification | Caller-controlled session IDs and forwarded IP values defeated the only limit | Anonymous AI/provider route and all provider credentials removed |
 
-Security regression tests now cover path traversal, symlink escape, root deletion, request-stream limits, session issuance/expiry/eviction, token enforcement, quotas, stale-save conflicts, and the virtual terminal's lack of shell interpretation.
+Security regression tests now cover path traversal, symlink and hard-link escape, root deletion, request-stream limits, session issuance/expiry/eviction, token and Host enforcement, quotas, stale-save conflicts, atomic create-only races, and the virtual terminal's lack of shell interpretation.
 
 Residual assumptions and limitations:
 
 - A malicious local process with permission to mutate the workspace concurrently may still attempt filesystem time-of-check/time-of-use races. This is a local convenience boundary, not an OS sandbox against another process running as the same user.
 - The bearer token is a shared secret, not user identity. Non-loopback deployments still need TLS, network controls, and operational log handling.
-- Static assets and health metadata are public by design so the unlock UI can load.
+- Static assets and health metadata are unauthenticated by design so the unlock UI can load; trusted-Host validation still applies.
 - Deletes are permanent; the application has no trash or version history.
-- Browser drafts are not persisted before manual save.
+- One unsaved editor draft may be stored in tab-scoped browser `sessionStorage` for reload recovery. It is not sent to Samsarix LLC or a third party.
 
 No credentials, tracking pixels, analytics SDKs, or third-party browser assets are included. API responses do not reveal the absolute host root.
 
@@ -136,11 +136,38 @@ No credentials, tracking pixels, analytics SDKs, or third-party browser assets a
 - `init` creates only `WELCOME.md` and never overwrites it.
 - A save validates UTF-8 byte size and projected total quota, writes a temporary sibling, flushes it, and uses `os.replace` for atomic replacement.
 - Existing-file saves can include the last ETag. A stale or deleted target returns HTTP 409 rather than overwriting silently.
+- Create/import operations atomically claim a new destination without replacement. Replacing an existing import requires confirmation and an exact current ETag.
+- Content search scans only bounded regular UTF-8 files and stops at its byte or result ceiling.
+- Invalid UTF-8 and oversize browser imports are rejected before an API write; downloads contain the current editor text.
 - Listing and regular-file accounting do not follow symlinks.
 - The root path cannot be used as a mutation target.
 - Non-empty folder deletion needs an explicit recursive flag and UI confirmation.
 - Terminal sessions are created by the server, expire after inactivity, and are capped by an LRU ceiling.
 - Oversized declared or streamed bodies receive HTTP 413 before application deserialization completes.
+
+## `0.2.0` market evidence and product increment
+
+Current official documentation shows a stable set of user expectations around browser file workspaces:
+
+- [JupyterLab](https://jupyterlab.readthedocs.io/en/stable/user/interface.html) combines a file browser, document tabs, search, text editing, and terminals; its [terminal guide](https://jupyterlab.readthedocs.io/en/stable/user/terminal.html) makes clear that those terminals execute full system shells with the server user's privileges.
+- [VS Code for the Web](https://code.visualstudio.com/docs/remote/vscode-web) positions zero-install browser editing and browser-sandboxed exploration as useful, while the [VS Code Server](https://code.visualstudio.com/docs/remote/vscode-server) provides a much broader remote-development system.
+- [Nextcloud Files](https://docs.nextcloud.com/server/latest/user_manual/en/files/access_webgui.html) treats search, text preview, upload/download, recent files, deleted-file recovery, and version history as recognizable file-workspace jobs.
+- [Obsidian's storage model](https://obsidian.md/help/Files%2Band%2Bfolders/How%2BObsidian%2Bstores%2Bdata) reinforces the value of ordinary local files rather than an opaque hosted data model.
+- The [CommonMark specification](https://spec.commonmark.org/current/) defines a much broader Markdown grammar than this release claims. Samsarix therefore labels its dependency-free renderer “safe basic Markdown preview” rather than claiming full CommonMark conformance.
+- Starlette's official [TrustedHostMiddleware documentation](https://www.starlette.io/middleware/#trustedhostmiddleware) identifies Host validation as the control for HTTP Host-header attacks. `0.2.0` applies an explicit equivalent before every route, with case-insensitive hostname comparison, bracketed-IPv6 handling, duplicate rejection, and no wildcard allowlists.
+
+The selected real-world job is document and artifact review: import a small set of UTF-8 notes, logs, configuration, code, or AI-generated text artifacts into a chosen local folder; find relevant lines; inspect Markdown safely; edit with recoverable unsaved state and explicit external-change handling; then save or download the result. This expands the complete journey without introducing a real shell, code execution, cloud sync, accounts, a database, or a frontend dependency supply chain.
+
+Implemented in `0.2.0`:
+
+- Bounded cross-file content search with path/line navigation, result limits, byte limits, and scan accounting
+- UTF-8 browser import, per-file size checks, create-only writes, collision confirmation, and current-document download
+- Basic Markdown block/inline preview built only with DOM nodes and safe link protocols; raw HTML is displayed as text
+- One tab-scoped unsaved draft with explicit restore/discard behavior
+- Reload, keep-editing, or exact-checkpoint overwrite choices for external file changes or deletions
+- Trusted Host validation, explicit allowed hosts for wildcard binds, ASCII bearer-token validation, and byte-wise constant-time comparison
+
+This is still demand evidence from adjacent product behavior, not proof of product-market fit. A small external pilot remains required before stronger market claims.
 
 ## Licensing decision
 
@@ -175,15 +202,21 @@ The final Windows/Python 3.11 release-candidate run produced:
 | --- | --- |
 | Ruff lint and format check | Passed with no findings; 11 Python files formatted |
 | Mypy strict package check | Passed; 6 source files checked |
-| Pytest with branch coverage | 40 passed, 1 platform-specific FIFO test skipped; 92.70% total coverage |
+| Pytest with branch coverage | 56 passed, 1 platform-specific FIFO test skipped; 90.87% total coverage |
 | JavaScript syntax check | Passed with Node.js `--check` |
-| Headed Chromium primary journey | Created, opened, edited, keyboard-saved, refreshed, and terminal-read a persistent file at desktop and 390×844 mobile sizes |
+| Headed Chromium document-review journey | Imported and saved a real UTF-8 file, rendered raw HTML inertly, navigated Unicode searches to exact source spans, verified astral-character selection at UTF-16 offsets 19–27, proved duplicate Ctrl+S input issued one PUT, downloaded a real file, and verified the 390×844 responsive layout without horizontal overflow |
+| Accessibility sanity checks | Accessibility snapshot exposed labeled regions and controls; document language was `en`, with no duplicate IDs or unlabeled empty buttons |
 | Browser console | Zero errors and zero warnings after fixes |
 | Python build | Created sdist and universal wheel successfully in isolated build environments |
 | Twine metadata check | Passed for both distributions |
 | Clean virtual-environment install | Wheel installed with current resolved dependencies; import, app factory, packaged static assets, AGPL metadata, CLI version, and `pip check` all passed |
-| Runtime dependency audit | `pip-audit` found no known vulnerabilities in the resolved FastAPI/Uvicorn runtime graph |
+| Runtime dependency audit | `pip-audit 2.10.0` found no known vulnerabilities in the exact installed environment after disposable bootstrap tools were updated; the unpublished local package identity was skipped as expected |
 | Adversarial sink search | No subprocess, dynamic-evaluation, unsafe deserialization, or outbound HTTP client sink remains in the application package |
+
+Final artifact SHA-256 digests:
+
+- `samsarix_workspace-0.2.0-py3-none-any.whl`: `017a98819473d17b43d2a2f98b71a67406f2952d8735f1b05c37d681726c1111`
+- `samsarix_workspace-0.2.0.tar.gz`: `77f169024ef7f3b3380e95bf8f6dba70159a74fa0d104e5d47aaf93d6be5c059`
 
 The single skipped test covers POSIX FIFO classification and is expected on Windows; Windows hard-link and symlink regressions executed successfully. No test depends on the legacy globally installed `helix-unified` package.
 
@@ -191,9 +224,8 @@ The single skipped test covers POSIX FIFO classification and is expected on Wind
 
 The next release should favor reliability over breadth:
 
-1. Add browser end-to-end tests to CI and a small visual regression fixture.
-2. Add recoverable drafts or autosave with an explicit conflict/recovery model.
-3. Add safe file download and bounded streaming upload without reintroducing pre-limit buffering.
-4. Add a trash/recovery mechanism before expanding destructive operations.
-5. If hosted multi-user use becomes a real requirement, design identity, authorization, per-tenant roots, audit logging, CSRF/origin controls, and deployment isolation as a separate security phase—not as a flag on the local app.
-6. Before PyPI publication, reserve the package name, configure trusted publishing, generate provenance/SBOM artifacts, and document a rollback process.
+1. Add the document-review browser journey to CI with a small checked-in fixture and targeted visual assertions.
+2. Add recoverable trash and bounded version checkpoints before expanding destructive operations.
+3. Run a small external pilot against the exact wheel and capture consented, privacy-preserving task success/support evidence.
+4. If hosted multi-user use becomes a real requirement, design identity, authorization, per-tenant roots, audit logging, CSRF/origin controls, and deployment isolation as a separate security phase—not as a flag on the local app.
+5. Before PyPI publication, reserve the package name, configure trusted publishing, generate provenance/SBOM artifacts, and document a rollback process.

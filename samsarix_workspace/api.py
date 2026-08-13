@@ -9,14 +9,14 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -24,6 +24,49 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from samsarix_workspace import __version__
 from samsarix_workspace.shell import ShellResult, VirtualShell
 from samsarix_workspace.workspace import Workspace, WorkspaceError
+
+
+def normalize_host_authority(authority: str) -> str | None:
+    """Return a case-folded host without an optional authority port."""
+
+    value = authority.strip()
+    if not value or any(character.isspace() for character in value):
+        return None
+    if value.startswith("["):
+        closing_bracket = value.find("]")
+        if closing_bracket <= 1:
+            return None
+        host = value[1:closing_bracket]
+        suffix = value[closing_bracket + 1 :]
+        if suffix and (not suffix.startswith(":") or not suffix[1:].isdigit()):
+            return None
+        return host.casefold()
+    if "[" in value or "]" in value:
+        return None
+    if value.count(":") == 1:
+        host, port = value.rsplit(":", 1)
+        if not host or not port.isdigit():
+            return None
+        value = host
+    return value.casefold()
+
+
+def normalize_allowed_hosts(hosts: Iterable[str]) -> tuple[str, ...]:
+    """Validate and deduplicate an explicit host allowlist."""
+
+    normalized: list[str] = []
+    for configured in hosts:
+        value = configured.strip()
+        if "*" in value:
+            raise ValueError("Allowed hosts must be explicit; wildcard hosts are not supported.")
+        host = normalize_host_authority(value)
+        if host is None:
+            raise ValueError(f"Invalid allowed host: {configured!r}.")
+        if host not in normalized:
+            normalized.append(host)
+    if not normalized:
+        raise ValueError("At least one explicit allowed host is required.")
+    return tuple(normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,14 +79,49 @@ class AppSettings:
     max_total_bytes: int = 52_428_800
     max_entries: int = 2_000
     max_request_bytes: int = 1_310_720
+    max_search_bytes: int = 10_485_760
     max_sessions: int = 128
     session_ttl_seconds: int = 21_600
+    allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
 
     @classmethod
     def from_environment(cls) -> AppSettings:
         root = Path(os.environ.get("SAMSARIX_WORKSPACE_ROOT", "."))
         token = os.environ.get("SAMSARIX_WORKSPACE_TOKEN") or None
-        return cls(workspace_root=root, token=token)
+        configured_hosts = os.environ.get("SAMSARIX_WORKSPACE_ALLOWED_HOSTS", "")
+        allowed_hosts = tuple(host.strip() for host in configured_hosts.split(",") if host.strip())
+        return cls(
+            workspace_root=root,
+            token=token,
+            allowed_hosts=normalize_allowed_hosts(
+                allowed_hosts or ("localhost", "127.0.0.1", "::1")
+            ),
+        )
+
+
+class ExplicitTrustedHostMiddleware:
+    """Reject requests whose normalized Host is not explicitly allowed."""
+
+    def __init__(self, app: ASGIApp, allowed_hosts: Iterable[str]) -> None:
+        self.app = app
+        self.allowed_hosts = frozenset(normalize_allowed_hosts(allowed_hosts))
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        authorities: list[str] = []
+        for key, value in scope.get("headers", []):
+            if key.lower() == b"host":
+                authorities.append(value.decode("latin-1"))
+        if (
+            len(authorities) != 1
+            or normalize_host_authority(authorities[0]) not in self.allowed_hosts
+        ):
+            response = PlainTextResponse("Invalid host header", status_code=400)
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 class RequestBodyLimitMiddleware:
@@ -133,6 +211,7 @@ class WriteFileRequest(StrictModel):
     path: str = Field(min_length=1, max_length=512)
     content: str = Field(max_length=1_048_576)
     expected_etag: str | None = Field(default=None, min_length=64, max_length=64)
+    create_only: bool = False
 
 
 class FolderRequest(StrictModel):
@@ -214,6 +293,9 @@ def create_app(
     """Create an isolated application instance for a workspace root."""
 
     resolved_settings = settings or AppSettings.from_environment()
+    if resolved_settings.token is not None and not resolved_settings.token.isascii():
+        raise ValueError("SAMSARIX_WORKSPACE_TOKEN must contain only ASCII characters")
+    allowed_hosts = normalize_allowed_hosts(resolved_settings.allowed_hosts)
     workspace = Workspace(
         resolved_settings.workspace_root,
         max_file_bytes=resolved_settings.max_file_bytes,
@@ -248,9 +330,13 @@ def create_app(
         response.headers["X-Frame-Options"] = "DENY"
         return response
 
-    # Added after the response-header middleware so it is the outermost ASGI
-    # layer and can terminate streamed oversized bodies before JSON parsing.
+    # Both guards run outside request parsing. The host gate is added last so an
+    # untrusted authority is rejected before the request body is consumed.
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=resolved_settings.max_request_bytes)
+    app.add_middleware(
+        ExplicitTrustedHostMiddleware,
+        allowed_hosts=allowed_hosts,
+    )
 
     @app.exception_handler(WorkspaceError)
     async def workspace_error_handler(_request: Request, exc: WorkspaceError) -> JSONResponse:
@@ -289,14 +375,16 @@ def create_app(
         if not authorization or not authorization.startswith(prefix):
             raise WorkspaceError("authentication_required", "A bearer token is required.", 401)
         supplied = authorization[len(prefix) :]
-        if not secrets.compare_digest(supplied, expected):
+        if not secrets.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
             raise WorkspaceError("authentication_failed", "The bearer token is not valid.", 401)
 
     router = APIRouter(prefix="/api/v1", dependencies=[Depends(authorize)])
 
     @router.get("/workspace")
     def workspace_summary() -> dict[str, Any]:
-        return {"workspace": workspace.summary(), "version": __version__}
+        summary = workspace.summary()
+        summary["limits"]["max_search_bytes"] = resolved_settings.max_search_bytes
+        return {"workspace": summary, "version": __version__}
 
     @router.get("/files")
     def list_files(
@@ -313,10 +401,29 @@ def create_app(
     def read_file(path: Annotated[str, Query(min_length=1, max_length=512)]) -> dict[str, Any]:
         return {"file": workspace.read_file(path).to_dict()}
 
+    @router.get("/search")
+    def search_files(
+        q: Annotated[str, Query(min_length=1, max_length=256)],
+        path: Annotated[str, Query(max_length=512)] = "",
+        case_sensitive: bool = False,
+        limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    ) -> dict[str, Any]:
+        report = workspace.search_text(
+            q,
+            path,
+            case_sensitive=case_sensitive,
+            limit=limit,
+            max_scan_bytes=resolved_settings.max_search_bytes,
+        )
+        return {"search": report.to_dict()}
+
     @router.put("/file")
     def write_file(payload: WriteFileRequest) -> dict[str, Any]:
         document = workspace.write_file(
-            payload.path, payload.content, expected_etag=payload.expected_etag
+            payload.path,
+            payload.content,
+            expected_etag=payload.expected_etag,
+            create_only=payload.create_only,
         )
         return {"file": document.to_dict()}
 

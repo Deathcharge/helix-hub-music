@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from samsarix_workspace.api import AppSettings, create_app
 
 
 def client_for(tmp_path: Path, **overrides: object) -> TestClient:
-    settings = AppSettings(workspace_root=tmp_path / "workspace", **overrides)  # type: ignore[arg-type]
+    values: dict[str, object] = {"allowed_hosts": ("testserver",)}
+    values.update(overrides)
+    settings = AppSettings(  # type: ignore[arg-type]
+        workspace_root=tmp_path / "workspace", **values
+    )
     return TestClient(create_app(settings))
 
 
@@ -33,6 +38,11 @@ def test_api_primary_journey(tmp_path: Path) -> None:
         etag = created.json()["file"]["etag"]
         opened = client.get("/api/v1/file", params={"path": "notes/idea.md"})
         assert opened.json()["file"]["content"] == "hello"
+        duplicate = client.put(
+            "/api/v1/file",
+            json={"path": "notes/idea.md", "content": "no", "create_only": True},
+        )
+        assert duplicate.status_code == 409
         saved = client.put(
             "/api/v1/file",
             json={"path": "notes/idea.md", "content": "hello again", "expected_etag": etag},
@@ -40,6 +50,11 @@ def test_api_primary_journey(tmp_path: Path) -> None:
         assert saved.status_code == 200
         listing = client.get("/api/v1/files", params={"recursive": True}).json()
         assert [entry["path"] for entry in listing["entries"]] == ["notes", "notes/idea.md"]
+        search = client.get("/api/v1/search", params={"q": "again"}).json()["search"]
+        assert [(match["path"], match["line"]) for match in search["matches"]] == [
+            ("notes/idea.md", 1)
+        ]
+        assert search["scanned_files"] == 1
         moved = client.post(
             "/api/v1/move",
             json={"source": "notes/idea.md", "destination": "notes/final.md"},
@@ -74,6 +89,47 @@ def test_token_authentication_uses_standard_error_contract(tmp_path: Path) -> No
         )
         assert authorized.status_code == 200
         assert client.get("/healthz").status_code == 200
+
+
+def test_host_header_is_validated_before_routes(tmp_path: Path) -> None:
+    with client_for(tmp_path) as client:
+        rejected = client.get("/healthz", headers={"Host": "attacker.example"})
+        assert rejected.status_code == 400
+        assert "status" not in rejected.text
+
+
+def test_host_header_comparison_normalizes_case_ports_and_ipv6(tmp_path: Path) -> None:
+    with client_for(tmp_path, allowed_hosts=("Example.TEST", "::1")) as client:
+        hostname = client.get("/healthz", headers={"Host": "EXAMPLE.test:8765"})
+        ipv6 = client.get("/healthz", headers={"Host": "[::1]:8765"})
+        assert hostname.json()["status"] == "ok"
+        assert ipv6.json()["status"] == "ok"
+
+
+def test_multiple_host_headers_are_rejected(tmp_path: Path) -> None:
+    with client_for(tmp_path) as client:
+        response = client.get(
+            "/healthz",
+            headers=[("Host", "testserver"), ("Host", "attacker.example")],
+        )
+        assert response.status_code == 400
+        assert "status" not in response.text
+
+
+@pytest.mark.parametrize("allowed_host", ["*", "*.example.test"])
+def test_wildcard_host_configuration_is_rejected(tmp_path: Path, allowed_host: str) -> None:
+    settings = AppSettings(workspace_root=tmp_path / "workspace", allowed_hosts=(allowed_host,))
+    with pytest.raises(ValueError, match="wildcard hosts"):
+        create_app(settings)
+
+
+def test_non_ascii_bearer_token_configuration_is_rejected(tmp_path: Path) -> None:
+    settings = AppSettings(
+        workspace_root=tmp_path / "workspace",
+        token="correct-horse-battery-staple-é",
+    )
+    with pytest.raises(ValueError, match="only ASCII"):
+        create_app(settings)
 
 
 def test_validation_and_workspace_errors_are_stable(tmp_path: Path) -> None:
@@ -112,7 +168,10 @@ def test_terminal_sessions_are_server_issued_bounded_and_expiring(
 ) -> None:
     ticks = iter([100.0, 104.0, 106.0])
     settings = AppSettings(
-        workspace_root=tmp_path / "workspace", max_sessions=1, session_ttl_seconds=5
+        workspace_root=tmp_path / "workspace",
+        max_sessions=1,
+        session_ttl_seconds=5,
+        allowed_hosts=("testserver",),
     )
     with TestClient(create_app(settings, session_clock=lambda: next(ticks))) as client:
         first = client.post("/api/v1/terminal/execute", json={"command": "pwd"}).json()

@@ -5,8 +5,8 @@ Thank you for helping make the small local-workspace promise more reliable. Plea
 ## Set up
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/helix-web-os.git
-cd helix-web-os
+git clone https://github.com/Deathcharge/samsarix-workspace.git
+cd samsarix-workspace
 python -m venv .venv
 python -m pip install -e ".[dev]"
 ```
