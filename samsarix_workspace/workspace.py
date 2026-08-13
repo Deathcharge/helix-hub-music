@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 import shutil
 import stat
 import tempfile
@@ -58,6 +59,38 @@ class FileDocument:
         return asdict(self)
 
 
+@dataclass(frozen=True, slots=True)
+class SearchMatch:
+    """One bounded matching line in a UTF-8 workspace file."""
+
+    path: str
+    line: int
+    column: int
+    length: int
+    preview: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SearchReport:
+    """Resource accounting and matches for one workspace search."""
+
+    query: str
+    path: str
+    matches: tuple[SearchMatch, ...]
+    scanned_files: int
+    scanned_bytes: int
+    skipped_files: int
+    truncated: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["matches"] = [match.to_dict() for match in self.matches]
+        return payload
+
+
 class Workspace:
     """A bounded text-file workspace rooted at one canonical directory."""
 
@@ -77,6 +110,7 @@ class Workspace:
         self.max_file_bytes = max_file_bytes
         self.max_total_bytes = max_total_bytes
         self.max_entries = max_entries
+        self.workspace_id = secrets.token_hex(8)
         self._lock = threading.RLock()
 
     @staticmethod
@@ -156,8 +190,7 @@ class Workspace:
         return candidate
 
     @staticmethod
-    def _timestamp(path: Path) -> str:
-        metadata = path.lstat() if path.is_symlink() else path.stat()
+    def _timestamp(metadata: os.stat_result) -> str:
         stamp = datetime.fromtimestamp(metadata.st_mtime, tz=UTC)
         return stamp.isoformat().replace("+00:00", "Z")
 
@@ -167,16 +200,21 @@ class Workspace:
 
     def _entry(self, path: Path) -> Entry:
         relative = path.relative_to(self.root).as_posix()
-        if path.is_symlink():
-            return Entry(relative, path.name, "blocked_symlink", 0, self._timestamp(path))
-        if path.is_dir():
-            return Entry(relative, path.name, "directory", 0, self._timestamp(path))
-        if not path.is_file():
-            return Entry(relative, path.name, "blocked_special", 0, self._timestamp(path))
-        size = path.stat().st_size
-        if path.stat(follow_symlinks=False).st_nlink > 1:
-            return Entry(relative, path.name, "blocked_hardlink", size, self._timestamp(path))
-        return Entry(relative, path.name, "file", size, self._timestamp(path))
+        try:
+            metadata = path.lstat()
+        except OSError as exc:
+            raise WorkspaceError("path_unavailable", "The requested path is unavailable.") from exc
+        modified_at = self._timestamp(metadata)
+        mode = metadata.st_mode
+        if stat.S_ISLNK(mode):
+            return Entry(relative, path.name, "blocked_symlink", 0, modified_at)
+        if stat.S_ISDIR(mode):
+            return Entry(relative, path.name, "directory", 0, modified_at)
+        if not stat.S_ISREG(mode):
+            return Entry(relative, path.name, "blocked_special", 0, modified_at)
+        if metadata.st_nlink > 1:
+            return Entry(relative, path.name, "blocked_hardlink", metadata.st_size, modified_at)
+        return Entry(relative, path.name, "file", metadata.st_size, modified_at)
 
     def list_entries(self, path: str = "", *, recursive: bool = False) -> list[Entry]:
         """List a folder with deterministic ordering and an entry ceiling."""
@@ -203,32 +241,174 @@ class Workspace:
                             413,
                         )
         else:
-            entries = [
-                self._entry(item) for item in sorted(directory.iterdir(), key=lambda p: p.name)
-            ]
-            if len(entries) > self.max_entries:
-                raise WorkspaceError(
-                    "entry_limit_exceeded",
-                    f"Folder listing exceeds {self.max_entries} entries.",
-                    413,
-                )
+            for item in sorted(directory.iterdir(), key=lambda item: item.name):
+                entries.append(self._entry(item))
+                if len(entries) > self.max_entries:
+                    raise WorkspaceError(
+                        "entry_limit_exceeded",
+                        f"Folder listing exceeds {self.max_entries} entries.",
+                        413,
+                    )
         return sorted(entries, key=lambda entry: (entry.path.casefold(), entry.path))
 
-    def read_file(self, path: str) -> FileDocument:
-        """Read one bounded UTF-8 text file."""
+    def assert_directory(self, path: str = "") -> None:
+        """Validate that a public path resolves to an existing workspace directory."""
+
+        candidate = self._safe_path(path, must_exist=True)
+        if not candidate.is_dir():
+            raise WorkspaceError("not_a_directory", "The requested path is not a directory.")
+
+    @staticmethod
+    def _search_preview(line: str, column: int, *, limit: int = 240) -> str:
+        compact = line.strip()
+        if len(compact) <= limit:
+            return compact
+        stripped_prefix = len(line) - len(line.lstrip())
+        compact_column = max(0, column - stripped_prefix)
+        start = max(0, compact_column - limit // 3)
+        end = min(len(compact), start + limit)
+        if end - start < limit:
+            start = max(0, end - limit)
+        return ("…" if start else "") + compact[start:end] + ("…" if end < len(compact) else "")
+
+    @staticmethod
+    def _casefold_span(line: str, needle: str) -> tuple[int, int] | None:
+        """Map a case-folded match back to a source-character span."""
+
+        folded_parts: list[str] = []
+        folded_to_source: list[int] = []
+        for source_index, character in enumerate(line):
+            folded = character.casefold()
+            folded_parts.append(folded)
+            folded_to_source.extend([source_index] * len(folded))
+        folded_position = "".join(folded_parts).find(needle)
+        if folded_position < 0:
+            return None
+        start = folded_to_source[folded_position]
+        end = folded_to_source[folded_position + len(needle) - 1] + 1
+        return start, end - start
+
+    def _read_file_bytes(self, path: str, *, limit: int) -> tuple[Path, bytes]:
+        """Read no more than ``limit`` bytes plus one detection byte."""
 
         candidate = self._safe_path(path, allow_root=False, must_exist=True)
         if not candidate.is_file():
             raise WorkspaceError("not_a_file", "The requested path is not a file.")
-        size = candidate.stat().st_size
-        if size > self.max_file_bytes:
-            raise WorkspaceError(
-                "file_too_large",
-                f"Files are limited to {self.max_file_bytes} bytes.",
-                413,
-            )
         try:
-            content_bytes = candidate.read_bytes()
+            with candidate.open("rb") as document:
+                content_bytes = document.read(limit + 1)
+        except OSError as exc:
+            raise WorkspaceError("read_failed", "The file could not be read.", 500) from exc
+        return candidate, content_bytes
+
+    def search_text(
+        self,
+        query: str,
+        path: str = "",
+        *,
+        case_sensitive: bool = False,
+        limit: int = 100,
+        max_scan_bytes: int = 10_485_760,
+    ) -> SearchReport:
+        """Search matching lines across bounded UTF-8 files without following links."""
+
+        if not query:
+            raise WorkspaceError("invalid_search", "Search text cannot be empty.")
+        if not 1 <= limit <= 200:
+            raise WorkspaceError("invalid_search", "Search result limit must be between 1 and 200.")
+        if max_scan_bytes < 0:
+            raise WorkspaceError("invalid_search", "Search byte limit cannot be negative.")
+        self.assert_directory(path)
+        normalized_path = self.normalize(path)
+        needle = query if case_sensitive else query.casefold()
+        matches: list[SearchMatch] = []
+        scanned_files = 0
+        scanned_bytes = 0
+        skipped_files = 0
+        truncated = False
+
+        for entry in self.list_entries(normalized_path, recursive=True):
+            if entry.kind != "file":
+                continue
+            remaining_bytes = max_scan_bytes - scanned_bytes
+            if remaining_bytes <= 0:
+                truncated = True
+                break
+            try:
+                _candidate, content_bytes = self._read_file_bytes(
+                    entry.path,
+                    limit=min(remaining_bytes, self.max_file_bytes),
+                )
+            except WorkspaceError as exc:
+                if exc.code != "read_failed":
+                    raise
+                skipped_files += 1
+                continue
+            scanned_bytes += len(content_bytes)
+            oversized = len(content_bytes) > self.max_file_bytes
+            if oversized:
+                skipped_files += 1
+            if len(content_bytes) > remaining_bytes:
+                truncated = True
+                break
+            if oversized:
+                continue
+            try:
+                content = content_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                skipped_files += 1
+                continue
+            scanned_files += 1
+            for line_number, line in enumerate(content.splitlines(), 1):
+                if case_sensitive:
+                    column = line.find(needle)
+                    span = None if column < 0 else (column, len(query))
+                else:
+                    span = self._casefold_span(line, needle)
+                if span is None:
+                    continue
+                column, match_length = span
+                matches.append(
+                    SearchMatch(
+                        path=entry.path,
+                        line=line_number,
+                        column=column + 1,
+                        length=match_length,
+                        preview=self._search_preview(line, column),
+                    )
+                )
+                if len(matches) >= limit:
+                    truncated = True
+                    return SearchReport(
+                        query,
+                        normalized_path,
+                        tuple(matches),
+                        scanned_files,
+                        scanned_bytes,
+                        skipped_files,
+                        truncated,
+                    )
+        return SearchReport(
+            query,
+            normalized_path,
+            tuple(matches),
+            scanned_files,
+            scanned_bytes,
+            skipped_files,
+            truncated,
+        )
+
+    def read_file(self, path: str) -> FileDocument:
+        """Read one bounded UTF-8 text file."""
+
+        try:
+            candidate, content_bytes = self._read_file_bytes(path, limit=self.max_file_bytes)
+            if len(content_bytes) > self.max_file_bytes:
+                raise WorkspaceError(
+                    "file_too_large",
+                    f"Files are limited to {self.max_file_bytes} bytes.",
+                    413,
+                )
             content = content_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise WorkspaceError(
@@ -236,11 +416,15 @@ class Workspace:
             ) from exc
         except OSError as exc:
             raise WorkspaceError("read_failed", "The file could not be read.", 500) from exc
+        try:
+            modified_at = self._timestamp(candidate.stat())
+        except OSError as exc:
+            raise WorkspaceError("read_failed", "The file could not be read.", 500) from exc
         return FileDocument(
             path=self.normalize(path, allow_root=False),
             content=content,
             size=len(content_bytes),
-            modified_at=self._timestamp(candidate),
+            modified_at=modified_at,
             etag=self._etag_bytes(content_bytes),
         )
 
@@ -254,9 +438,9 @@ class Workspace:
             for name in files:
                 item = current / name
                 try:
-                    mode = item.stat(follow_symlinks=False).st_mode
-                    if stat.S_ISREG(mode):
-                        total += item.stat(follow_symlinks=False).st_size
+                    metadata = item.stat(follow_symlinks=False)
+                    if stat.S_ISREG(metadata.st_mode):
+                        total += metadata.st_size
                 except OSError:
                     continue
         return total
@@ -267,6 +451,7 @@ class Workspace:
         content: str,
         *,
         expected_etag: str | None = None,
+        create_only: bool = False,
     ) -> FileDocument:
         """Atomically create or replace a UTF-8 file within configured quotas."""
 
@@ -278,7 +463,6 @@ class Workspace:
                 413,
             )
         candidate = self._safe_path(path, allow_root=False)
-        self._reject_symlink_parts(candidate, include_leaf=True)
         parent = candidate.parent
         self._reject_symlink_parts(parent)
         if not parent.exists() or not parent.is_dir():
@@ -287,6 +471,10 @@ class Workspace:
         with self._lock:
             old_size = 0
             if candidate.exists():
+                if create_only:
+                    raise WorkspaceError(
+                        "already_exists", "An entry already exists at that path.", 409
+                    )
                 if not candidate.is_file():
                     raise WorkspaceError("not_a_file", "The destination is not a file.")
                 existing = candidate.read_bytes()
@@ -323,7 +511,18 @@ class Workspace:
                     temporary.flush()
                     os.fsync(temporary.fileno())
                     temporary_name = temporary.name
-                os.replace(temporary_name, candidate)
+                if create_only:
+                    os.link(temporary_name, candidate)
+                    Path(temporary_name).unlink()
+                    temporary_name = None
+                else:
+                    os.replace(temporary_name, candidate)
+            except FileExistsError as exc:
+                if temporary_name:
+                    Path(temporary_name).unlink(missing_ok=True)
+                raise WorkspaceError(
+                    "already_exists", "An entry already exists at that path.", 409
+                ) from exc
             except OSError as exc:
                 if temporary_name:
                     Path(temporary_name).unlink(missing_ok=True)
@@ -413,9 +612,12 @@ class Workspace:
 
         entries = self.list_entries("", recursive=True)
         return {
+            "id": self.workspace_id,
             "name": self.root.name,
             "entries": len(entries),
-            "usage_bytes": self.usage_bytes(),
+            "usage_bytes": sum(
+                entry.size for entry in entries if entry.kind in {"file", "blocked_hardlink"}
+            ),
             "limits": {
                 "max_file_bytes": self.max_file_bytes,
                 "max_total_bytes": self.max_total_bytes,

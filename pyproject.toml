@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=75,<82"]
+requires = ["setuptools>=77,<85"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "samsarix-workspace"
-version = "0.1.0"
+version = "0.2.0"
 description = "A small, local-first browser workspace for files and safe virtual commands."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -48,9 +48,9 @@ dev = [
 samsarix-workspace = "samsarix_workspace.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Deathcharge/helix-web-os"
-Documentation = "https://github.com/Deathcharge/helix-web-os#readme"
-Issues = "https://github.com/Deathcharge/helix-web-os/issues"
+Homepage = "https://github.com/Deathcharge/samsarix-workspace"
+Documentation = "https://github.com/Deathcharge/samsarix-workspace#readme"
+Issues = "https://github.com/Deathcharge/samsarix-workspace/issues"
 
 [tool.setuptools]
 include-package-data = true

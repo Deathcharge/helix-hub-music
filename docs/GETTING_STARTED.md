@@ -54,11 +54,22 @@ idea.md
 | --- | --- |
 | `SAMSARIX_WORKSPACE_ROOT` | Default folder for `serve` when no path argument is supplied |
 | `SAMSARIX_WORKSPACE_TOKEN` | Bearer token required by the API and UI; mandatory for non-loopback binds |
+| `SAMSARIX_WORKSPACE_ALLOWED_HOSTS` | Comma-separated accepted Host values when the app factory is configured from the environment |
+
+## Review a set of documents
+
+1. Choose **Import** in the file sidebar and select one or more UTF-8 text files. Selecting a folder first imports into that folder.
+2. Type in **Search file contents**. Results show the file, line, column, and a bounded matching preview; choose one to open the exact location.
+3. For `.md` or `.markdown` files, choose **Preview**. The built-in basic renderer does not execute raw HTML or load document-provided assets.
+4. Edit and save explicitly. If another process changed the file, choose whether to reload the disk version, keep editing, or overwrite the exact newer checkpoint.
+5. Choose **Download** to export the current editor text, including unsaved edits when present.
+
+One unsaved draft is retained in this browser tab's `sessionStorage` so a page reload can offer recovery. Closing the tab clears normal session storage. Samsarix Workspace does not send drafts, file contents, or usage telemetry to Samsarix LLC.
 
 CLI options:
 
 ```text
-samsarix-workspace serve [path] [--host HOST] [--port PORT] [--open]
+samsarix-workspace serve [path] [--host HOST] [--allowed-host HOST] [--port PORT] [--open]
 ```
 
 The default host is `127.0.0.1`; the default port is `8765`. Use `--log-level warning` to reduce request logging.
@@ -88,4 +99,4 @@ The editor supports bounded UTF-8 regular files only. Binary files, files over 1
 
 ### The server refuses `--host 0.0.0.0`
 
-Set a random `SAMSARIX_WORKSPACE_TOKEN` of at least 20 characters. For untrusted networks, also terminate TLS and restrict network access in a reverse proxy or tunnel.
+Set a random ASCII `SAMSARIX_WORKSPACE_TOKEN` of at least 20 characters and pass at least one `--allowed-host` naming the hostname clients will use. Repeat the option for aliases. For untrusted networks, also terminate TLS and restrict network access in a reverse proxy or tunnel.

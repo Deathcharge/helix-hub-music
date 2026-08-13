@@ -17,6 +17,7 @@ You should receive an acknowledgment when the report is reviewed. Response and r
 The supported default is one trusted local user, one workspace root, and a listener on `127.0.0.1` or `::1`.
 
 - Non-loopback binding requires `SAMSARIX_WORKSPACE_TOKEN` of at least 20 characters.
+- Wildcard binding also requires an explicit `--allowed-host`; all routes reject unrecognized Host headers.
 - Use TLS and network access controls for any untrusted network.
 - The token is one shared secret, not user identity or tenant authorization.
 - Do not expose a workspace containing secrets that the server process should not read.

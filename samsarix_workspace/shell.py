@@ -7,6 +7,7 @@ evaluate code, expand environment variables, or interpret shell redirection.
 from __future__ import annotations
 
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
@@ -53,10 +54,30 @@ This is a safe virtual terminal, not an operating-system shell."""
         max_command_chars: int = 2_048,
         max_output_chars: int = 65_536,
     ) -> None:
+        if max_output_chars < 0:
+            raise ValueError("max_output_chars cannot be negative")
         self.workspace = workspace
         self.cwd = ""
         self.max_command_chars = max_command_chars
         self.max_output_chars = max_output_chars
+        self.handlers: dict[str, Callable[[list[str]], ShellResult]] = {
+            "help": self._help,
+            "pwd": self._pwd,
+            "cd": self._cd,
+            "ls": self._ls,
+            "cat": self._cat,
+            "head": self._head,
+            "tail": self._tail,
+            "wc": self._wc,
+            "find": self._find,
+            "grep": self._grep,
+            "mkdir": self._mkdir,
+            "touch": self._touch,
+            "mv": self._move,
+            "rm": self._remove,
+            "echo": self._echo,
+            "clear": self._clear,
+        }
 
     def _path(self, value: str | None = None) -> str:
         if value is None or value in {"", "."}:
@@ -83,6 +104,8 @@ This is a safe virtual terminal, not an operating-system shell."""
         if len(output) <= self.max_output_chars:
             return output
         marker = "\n… output truncated by Samsarix Workspace …"
+        if self.max_output_chars <= len(marker):
+            return output[: self.max_output_chars]
         return output[: self.max_output_chars - len(marker)] + marker
 
     def execute(self, command: str) -> ShellResult:
@@ -102,25 +125,7 @@ This is a safe virtual terminal, not an operating-system shell."""
             return ShellResult("", self.cwd)
 
         name, *args = arguments
-        handlers = {
-            "help": self._help,
-            "pwd": self._pwd,
-            "cd": self._cd,
-            "ls": self._ls,
-            "cat": self._cat,
-            "head": self._head,
-            "tail": self._tail,
-            "wc": self._wc,
-            "find": self._find,
-            "grep": self._grep,
-            "mkdir": self._mkdir,
-            "touch": self._touch,
-            "mv": self._move,
-            "rm": self._remove,
-            "echo": self._echo,
-            "clear": self._clear,
-        }
-        handler = handlers.get(name.casefold())
+        handler = self.handlers.get(name.casefold())
         if handler is None:
             return ShellResult(
                 f"error: unknown command {name!r}; run 'help' for the allowlist",
@@ -149,9 +154,7 @@ This is a safe virtual terminal, not an operating-system shell."""
         if len(args) > 1:
             raise WorkspaceError("usage", "Usage: cd [path]")
         destination = self._path(args[0] if args else "/")
-        target = self.workspace._safe_path(destination, must_exist=True)
-        if not target.is_dir():
-            raise WorkspaceError("not_a_directory", "The requested path is not a directory.")
+        self.workspace.assert_directory(destination)
         self.cwd = destination
         return ShellResult("", self.cwd)
 
