@@ -61,10 +61,12 @@ idea.md
 1. Choose **Import** in the file sidebar and select one or more UTF-8 text files. Selecting a folder first imports into that folder.
 2. Type in **Search file contents**. Results show the file, line, column, and a bounded matching preview; choose one to open the exact location.
 3. For `.md` or `.markdown` files, choose **Preview**. The built-in basic renderer does not execute raw HTML or load document-provided assets.
-4. Edit and save explicitly. If another process changed the file, choose whether to reload the disk version, keep editing, or overwrite the exact newer checkpoint.
+4. Edit and save explicitly. You can continue typing while saving; newer text remains unsaved and recoverable until the next save. Navigation and file mutations wait for the in-flight save. If another process changed the file, choose whether to reload the disk version, keep editing, or overwrite the exact newer checkpoint. **Keep editing** does not authorize an overwrite on the next save.
 5. Choose **Download** to export the current editor text, including unsaved edits when present.
 
 One unsaved draft is retained in this browser tab's `sessionStorage` so a page reload can offer recovery. Closing the tab clears normal session storage. Samsarix Workspace does not send drafts, file contents, or usage telemetry to Samsarix LLC.
+
+While a document opens, the previous editor is read-only; only the latest successful open replaces it. A failed open leaves the previous text, path, and draft intact. Restoring a draft whose disk version changed still requires explicit conflict resolution when saving.
 
 CLI options:
 
@@ -79,6 +81,7 @@ The default host is `127.0.0.1`; the default port is `8765`. Use `--log-level wa
 - Files are stored directly in the selected folder, not in an application database.
 - Saves write a temporary sibling file, flush it, and atomically replace the target.
 - Unsaved editor text exists only in the browser tab. Copy it elsewhere before reloading after a server outage.
+- Requests time out after 15 seconds. A timed-out save may already have reached disk; retry normally so the ETag conflict guard checks the result. There is no automatic retry of writes.
 - Deletes are permanent. Folder deletion requires an explicit recursive confirmation in the UI or `rm -r` in the virtual terminal.
 - The workspace root cannot be renamed or deleted through the API.
 - Back up important folders with your normal backup or version-control workflow.
