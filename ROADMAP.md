@@ -58,7 +58,15 @@ Current hardening backlog:
 - Inline failure/retry handling and preservation of other open editor drafts
 - Honest limits: no saved-edit history, OS Trash integration, encryption, or backup guarantee
 
-Next highest-value work is bounded saved-version checkpoints, then a small external pilot using the exact artifact and extended WebKit/real-device validation. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
+## Saved-version recovery (`0.4.0` candidate)
+
+- Pre-overwrite UTF-8 checkpoints with automatic bounded oldest-version retention
+- Saved/current disk previews, restore-as-copy, and ETag-guarded in-place replacement
+- Original-path provenance that remains discoverable after rename/deletion
+- Independent private history storage, digest checks, explicit version removal, and draft preservation
+- Storage/API/terminal/browser implementation and initial regressions complete; final package, browser, review, and CI gates remain before merge
+
+Next highest-value work is completing this increment's acceptance, then a small external pilot using the exact artifact and extended WebKit/real-device validation. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
 
 ## Samsarix adoption
 

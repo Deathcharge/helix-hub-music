@@ -97,6 +97,10 @@ def test_command_allowlist_is_initialized_once_and_introspectable(workspace: Wor
         "trash",
         "restore",
         "purge",
+        "history",
+        "version",
+        "restore-version",
+        "purge-version",
         "echo",
         "clear",
     }

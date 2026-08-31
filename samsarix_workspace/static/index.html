@@ -26,6 +26,7 @@
         <span id="usage" class="muted"></span>
       </div>
       <nav class="top-actions" aria-label="Workspace actions">
+        <button id="history-button" class="button ghost" type="button">History</button>
         <button id="trash-button" class="button ghost" type="button">Trash</button>
         <button id="refresh-button" class="button ghost" type="button" title="Refresh files">Refresh</button>
         <a class="button ghost" href="/openapi.json" target="_blank" rel="noreferrer">API</a>
@@ -158,6 +159,43 @@
         <p id="trash-status" role="status" aria-live="polite"></p>
         <p id="trash-error" class="field-error" role="alert"></p>
         <div id="trash-items" class="trash-items"></div>
+      </div>
+    </dialog>
+
+    <dialog id="history-dialog" class="dialog history-dialog" aria-labelledby="history-title">
+      <div>
+        <p class="eyebrow">Before each overwrite</p>
+        <h2 id="history-title">Saved history</h2>
+        <p>Prior disk contents are checkpointed before app saves. Paths stay as captured, even after renaming or deleting a file. External edits are not monitored. History is local, unencrypted, and separate from Trash.</p>
+        <div class="history-filter">
+          <label for="history-path">Original path (blank for all files)</label>
+          <input id="history-path" maxlength="512" autocomplete="off" placeholder="notes/draft.md">
+          <div class="trash-toolbar">
+            <button id="history-refresh" class="button ghost" type="button">Refresh history</button>
+            <button id="history-all" class="button ghost" type="button">All files</button>
+            <button class="button ghost" type="button" data-close-dialog>Close</button>
+          </div>
+        </div>
+        <p id="history-status" role="status" aria-live="polite"></p>
+        <p id="history-retention" class="muted"></p>
+        <p id="history-error" class="field-error" role="alert"></p>
+        <div id="history-items" class="trash-items history-items"></div>
+        <section id="history-preview" hidden aria-labelledby="history-preview-title">
+          <h3 id="history-preview-title">Compare saved contents</h3>
+          <p id="history-current-status" role="status"></p>
+          <div class="history-comparison">
+            <div><label for="history-content">Saved version</label><textarea id="history-content" readonly spellcheck="false"></textarea></div>
+            <div><label for="history-current">Current disk file</label><textarea id="history-current" readonly spellcheck="false"></textarea></div>
+          </div>
+          <form id="history-copy-form">
+            <label for="history-destination">New copy path</label>
+            <input id="history-destination" maxlength="512" required autocomplete="off">
+            <div class="dialog-actions">
+              <button id="history-copy" class="button primary" type="submit">Restore a new copy</button>
+              <button id="history-replace" class="button danger-ghost" type="button">Replace current disk file</button>
+            </div>
+          </form>
+        </section>
       </div>
     </dialog>
 

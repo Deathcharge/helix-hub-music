@@ -92,7 +92,7 @@ The default host is `127.0.0.1`; the default port is `8765`. Use `--log-level wa
 1. Select a file and choose **Delete → Move to Trash**. Cancel leaves both the editor and file untouched. Unsaved edits are discarded only after successful deletion; Trash retains the disk version.
 2. Open **Trash** in the top toolbar. Items remain available after a page reload or server restart using the same root.
 3. Choose **Restore**, check the prefilled original path, and submit. If it is occupied or its parent is missing, the dialog explains why; choose an unused path under an existing parent. Restoring another file keeps the current editor and its unsaved draft.
-4. To discard an archived item permanently, choose **Delete permanently** and confirm. This cannot be undone through the app and is not secure erasure.
+4. To discard an archived item permanently, choose **Delete permanently** and confirm. The archived copy cannot be recovered afterward. Separate older History checkpoints are unaffected; this is not secure erasure.
 
 The same virtual-terminal journey uses the ID returned by `rm` or listed by `trash`:
 
@@ -111,6 +111,23 @@ The reserved `.samsarix-trash` folder is private to the app's file API, not encr
 Deletion uses a same-filesystem rename after flushing the metadata file; restore copies exclusively before removing the archive. Ordinary operation failures and restarts are handled, but arbitrary power loss, disk corruption, hostile local processes, and network-filesystem durability are not guaranteed. Restoring requires free space for both copies during the operation.
 
 If a request times out, **refresh active files and Trash before retrying**. If restore fails, Trash remains but a partial destination may exist: inspect it or choose another unused path. If restoration succeeds with a cleanup warning, verify the restored copy before purging the retained record. An `incomplete` or unreadable item cannot be restored through the UI; inspect a backup/offline copy if needed before permanently deleting it. An unrecognized `.samsarix-trash` folder causes startup to fail without changing it; stop other processes, back it up, and rename it outside the app before retrying.
+
+## Recover a prior saved edit
+
+1. Edit and save an existing text file. The previous disk contents are checkpointed before replacement; new-file creation and unchanged saves do not create versions.
+2. Open **History**. The selected file's original path is prefilled; choose **All files** to find versions captured before a rename/deletion, or type an exact original path and refresh.
+3. Choose **Preview** to compare a checkpoint with the current disk file. Neither preview changes the editor or disk.
+4. **Restore a new copy** requires an unused path with an existing parent. A collision stays inline; choose another name. The current editor, including any draft, is preserved.
+5. **Replace current disk file** asks for confirmation and accepts only the disk version shown in the preview. If the file changes, cancel the confirmation, refresh history, and preview again before choosing what to do. The replaced disk contents are checkpointed, making an ordinary restoration reversible while retention permits.
+6. A clean open editor reloads the restored file. A dirty editor retains its text and original ETag; saving it requires the existing conflict-resolution flow. **Remove version** deletes only a selected checkpoint after confirmation.
+
+History keeps up to 20 checkpoints per original path within a global 200-version / 50 MiB content budget. Unlike Trash, it automatically expires oldest checkpoints when needed. Retention occurs when a checkpoint is created, even if the following active write fails. During staging, one extra checkpoint plus metadata may exist. If checkpointing or cleanup fails, the active overwrite is refused; inspect/remove unavailable or excess items before retrying. A checkpoint too large for the configured history budget produces `history_quota_exceeded`. Existing binary or oversized files must not be replaced through the text editor.
+
+The CLI uses these defaults. Embedders can configure `AppSettings.max_history_bytes` (1 byte–1 GiB), `max_history_items` (1–1,000), and `max_history_per_file` (1–the item limit). Lowering limits below current usage can require manual checkpoint removal before further saves. Metadata counts toward actual disk allocation in addition to the content budget.
+
+The private `.samsarix-history` folder contains original filenames and text, without encryption. Keep it out of publicly shared directories and include it in backups if those versions matter. An unrecognized folder with that name causes startup to fail without adopting its contents. History paths remain the names used when captured; a different file later reusing that path can share its path-based history. External saves are not monitored, though the current disk content is checkpointed when the app next overwrites it. No OS-level hostile-writer, disk-corruption, or arbitrary-power-loss guarantees are claimed.
+
+Virtual commands: `history [path]`, `version <id>`, `restore-version <id> <new-path>`, and `purge-version <id> --confirm`. For guarded replacement, append the current disk ETag as the third argument to `restore-version`; the browser preview or file API supplies that ETag. Purging Trash or permanently deleting an active file does not erase separate history checkpoints.
 
 ## Troubleshooting
 

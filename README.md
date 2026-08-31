@@ -4,7 +4,7 @@ Samsarix Workspace is a small, local-first browser workspace for persistent text
 
 This repository was previously named `helix-web-os`; that history remains in Git. The product and company identity are now **Samsarix Workspace** by **Samsarix LLC**.
 
-> **Maturity:** `0.3.0` alpha release candidate. The primary local review and deleted-file recovery workflows are implemented and tested. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal.
+> **Maturity:** `0.4.0` alpha release candidate. Local document review, deleted-file recovery, and saved-version preview/restore are implemented. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal. See the productization record for exact verification evidence.
 
 ## What works
 
@@ -13,6 +13,7 @@ This repository was previously named `helix-web-os`; that history remains in Git
 - Safe basic Markdown preview that renders through DOM text nodes and never executes raw document HTML
 - Tab-scoped draft recovery plus an explicit reload-or-overwrite flow for disk conflicts
 - Persistent local Trash with collision-safe restore, explicit permanent deletion, and no automatic eviction
+- Bounded saved-version history with disk previews, restore-as-copy, and conflict-checked replacement
 - Atomic writes, per-file and total-storage quotas, and bounded file listings
 - A virtual terminal for file commands plus `trash`, `restore`, and explicitly confirmed `purge`
 - FastAPI JSON API with a stable error envelope and OpenAPI document
@@ -93,6 +94,8 @@ Defaults are conservative:
 | Listed entries | 2,000 |
 | Trash content (additional to active storage) | 50 MiB |
 | Trash items / contained entries | 100 / 2,000 |
+| Saved-history content (additional) | 50 MiB |
+| Saved-history versions / versions per original path | 200 / 20 |
 | HTTP request body | 1.25 MiB |
 | Text scanned per search | 10 MiB |
 | Active virtual-terminal sessions | 128 |
@@ -102,6 +105,8 @@ Symbolic links, hard-linked files, and special files are not followed or opened.
 
 Trash lives in the reserved `.samsarix-trash` folder, hidden from active browsing, search, and ordinary file APIs. It is not encrypted, an OS Recycle Bin, or a backup. Keep one server process per root; same-permission local processes and arbitrary power loss are outside its recovery guarantee. Full Trash refuses new deletion rather than silently removing older items.
 
+History uses a separate reserved `.samsarix-history` folder. Before an app overwrite, it checkpoints the previous UTF-8 disk contents; unchanged saves do not add versions. Oldest checkpoints expire automatically to meet history limits. History keeps original paths, including after rename/deletion, and does not monitor external edits or record keystrokes. **History → All files** finds checkpoints of moved/deleted paths. Preview a version before restoring a new copy or confirming replacement of the displayed current disk version. Unsaved drafts stay intact. Deleting an active file or purging Trash does not remove separate history checkpoints.
+
 Current non-goals:
 
 - Binary or rich-media editing
@@ -109,7 +114,7 @@ Current non-goals:
 - Code execution, kernels, language servers, Git UI, or package installation
 - Cloud sync, collaboration, accounts, organizations, billing, or telemetry
 - AI chat or model-provider integration
-- Background autosave or version history for saved edits
+- Background autosave, external-change monitoring, or Git-style rename tracking
 
 Those boundaries are part of the security model, not missing claims hidden behind marketing language.
 
@@ -128,6 +133,9 @@ The OpenAPI document is available at `/openapi.json`. The versioned endpoints ar
 - `GET /api/v1/trash`
 - `POST /api/v1/trash/{id}/restore`
 - `DELETE /api/v1/trash/{id}?confirm=true`
+- `GET /api/v1/history` and `GET /api/v1/history/{id}`
+- `POST /api/v1/history/{id}/restore`
+- `DELETE /api/v1/history/{id}?confirm=true`
 - `POST /api/v1/terminal/execute`
 
 See the [API reference](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/API_REFERENCE.md) for payloads and errors.

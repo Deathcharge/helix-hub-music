@@ -4,7 +4,7 @@ Date: 2026-08-31
 
 Baseline revision: `64ad942bbf9e7f006a6ac481933587559121f50b`
 
-Product: Samsarix Workspace `0.3.0`
+Product: Samsarix Workspace `0.4.0` candidate
 
 Owner: Samsarix LLC
 
@@ -74,9 +74,9 @@ Removed because they were unsupported fragments:
 - Invented pricing, subscriptions, marketplace, provider routing, real-time collaboration, and production-readiness claims
 - Mock-only tests and broad unpinned requirements files
 
-Deferred deliberately after `0.3.0`:
+Deferred deliberately after `0.4.0`:
 
-- Binary/rich-media preview, background autosave, and saved-edit version history
+- Binary/rich-media preview, background autosave, external-change monitoring, and file-identity/rename tracking
 - Multi-user identity, authorization, tenant isolation, and audit logs
 - Collaboration, cloud sync, deployment automation, and hosted operations
 - A real shell, code execution, AI provider access, plugins, or extensions
@@ -96,7 +96,8 @@ FastAPI application
    └── security response headers
             │
             ├── Workspace service ── atomic UTF-8 files under one root
-            │          └── TrashStore ── bounded private recovery records
+            │          ├── TrashStore ── bounded private deleted-content records
+            │          └── HistoryStore ── bounded pre-overwrite text checkpoints
             │
             └── VirtualShell ─────── direct allowlisted method dispatch
                                      (no subprocess or OS shell)
@@ -356,12 +357,35 @@ Logical commits: `f54d4cf` recovery implementation; `a930fee` packaged folder re
 
 Disposition: alpha release candidate for a single trusted local user, not a hosted service or externally validated offering. The permanent-only deletion P1 is closed; saved-version checkpoints remain the next local P1. WebKit/physical-device coverage is P2. No known locally actionable P0 remains in the reviewed core journey. Public package ownership/trusted publishing, provenance/signing decisions, legal review for commercial terms, and consented external pilot participation remain owner-controlled gates. No package publication, production deployment, paid service, or outreach was performed.
 
+## `0.4.0` saved-version recovery
+
+Baseline reverified: clean `main` at `6e5729c3b774d8467b1cd60600a999b870ec053e`, with [post-merge CI 33401420685](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33401420685) and dependency graph successful. Local `python -m pytest --tb=short`: 117 passed, one Windows FIFO skip, 91.49% branch-aware coverage. Ruff and Mypy passed. The prior goal turn was concrete progress: Trash was implemented, reviewed, merged, and verified; saved-overwrite recovery remained the next P1.
+
+### Product decision
+
+The [Nextcloud version-control guide](https://docs.nextcloud.com/server/stable/user_manual/en/files/version_control.html) describes version restoration and bounded automatic expiration. The [VS Code history guide](https://code.visualstudio.com/docs/sourcecontrol/history) shows local saves alongside file history. Checked 2026-08-31: these support recoverable saves as an established workflow, not evidence of Samsarix demand or feature parity.
+
+The chosen journey is **save → preview prior/current disk contents → restore a new copy or confirm guarded replacement → recover the replaced contents while retention permits**. It targets accidental overwrites in notes, drafts, Markdown, and small configuration files without requiring Git, a database, or external services.
+
+Design and limits:
+
+- A changed app overwrite checkpoints the prior bounded UTF-8 bytes before active replacement. Creation/no-op saves do not create versions. Disk contents are checked again after checkpoint I/O; a new target is created exclusively even without an explicit create-only flag.
+- The owned `.samsarix-history` store contains immutable original paths, UTC checkpoint timestamps, sequence ordering, sizes, SHA-256 digests, and content. It shares bounded metadata/link guards with Trash but has independent retention: 50 MiB / 200 versions / 20 per original path by default.
+- Oldest checkpoints expire after a new checkpoint is flushed. Staging may temporarily use one extra checkpoint plus metadata. Checkpoint/retention failure blocks the active write, and incomplete/excess records block repeated growth. A failed active write may still add a useful checkpoint and expire old ones; this is explicit, not an all-filesystem transaction claim.
+- History is path-based provenance, not inferred file identity. Renames/deletions do not change recorded paths; **All files** keeps those versions discoverable. Reusing a path shares its history. No external writer monitoring, first-create snapshot, unsaved-keystroke capture, or folder timeline is promised.
+- Preview verifies the content digest. Restore-as-copy requires an unused path; replacement requires the previewed current ETag and checkpoints the replaced contents first. Dirty editors keep their text and original ETag; clean editors reload the restored file. User confirmation precedes in-place replacement or version removal.
+- History contains unencrypted prior content and names. Purging Trash or permanently removing an active file does not erase separate checkpoints. Retention is not secure erasure, encryption, or a backup. One trusted local user/process/root remains the boundary.
+
+Implemented: storage, API, virtual commands, history browser panel with read-only comparison, inline failure/retry, copy collision handling, confirmation/cancellation, and draft preservation. No runtime dependency or provider cost was added. New tests cover persistence, quotas/retention, corruption/hash/link boundaries, failed checkpoint/write, stale restore, an intervening host edit, and the browser-to-disk journey.
+
+Intermediate verification (not final release acceptance): Python 148 passed / one platform skip, 92.36% coverage; Ruff, Mypy, and JavaScript syntax checks passed. All 66 source browser executions passed in Chromium/Firefox, including 12 new history checks. Initial failures were the expected expanded command-allowlist assertion and a test client using an intentionally rejected Host; both test expectations/setup were corrected without relaxing production guards. Packaged-artifact, independent review, and exact-head CI checks remain required before merge. Final evidence will be added here and in the PR.
+
 ## Next best work
 
 The next release should favor reliability over breadth:
 
-1. Add bounded saved-version checkpoints with explicit retention and restore semantics; Trash already covers deletion, not overwriting an existing file.
-2. Extend browser coverage to WebKit, preserving the existing lifecycle regression cases.
-3. Run a small external pilot against the exact wheel and capture consented, privacy-preserving task success/support evidence.
+1. Finish packaged and cross-platform acceptance for saved-version recovery before merging the increment.
+2. Extend browser coverage to WebKit, preserving the existing lifecycle and recovery regression cases.
+3. Run a small external pilot against the exact wheel and capture consented, privacy-preserving task success/support evidence; prioritize usability follow-ups from that evidence.
 4. If hosted multi-user use becomes a real requirement, design identity, authorization, per-tenant roots, audit logging, CSRF/origin controls, and deployment isolation as a separate security phase—not as a flag on the local app.
 5. Before PyPI publication, reserve the package name, configure trusted publishing, generate provenance/SBOM artifacts, and document a rollback process.

@@ -93,7 +93,7 @@ Since `0.3.0`, regular files and folders move to local Trash by default. Non-emp
 
 The response is `{ "deleted": true, "permanent": false, "trash_item": { ... } }`. A Trash item contains an opaque 32-character lowercase hex `id`, workspace-relative original `path`, `kind`, UTC `deleted_at`, content `bytes`, contained `entries`, format `version`, and `state: "ready"`.
 
-**Compatibility change:** clients requiring immediate permanent removal must explicitly send `permanent=true`. That response has `permanent: true` and `trash_item: null`; it cannot be restored. Blocked leaf links require this explicit mode and only the link is removed; unsupported reparse entries may still be refused. A tree containing links or special files cannot move to Trash.
+**Compatibility change:** clients requiring immediate permanent removal must explicitly send `permanent=true`. That response has `permanent: true` and `trash_item: null`; the removed copy is not recoverable from Trash. Separate older History checkpoints remain until removed or expired. Blocked leaf links require this explicit mode and only the link is removed; unsupported reparse entries may still be refused. A tree containing links or special files cannot move to Trash.
 
 Trash has separate byte, item, and contained-entry limits. A full store returns HTTP 413 `trash_full` and leaves the live source intact. No automatic eviction occurs. Disk/rename failures return `trash_failed`; inspect active files and Trash before retrying because a response may fail after the move succeeded.
 
@@ -121,6 +121,24 @@ Explicit confirmation is mandatory (`confirmation_required` otherwise). Success 
 
 All three recovery routes use the same optional bearer authentication and mandatory Host validation as the other API routes. Trash persists across server restarts under the chosen workspace root; it is not tab-scoped draft storage or an OS Trash implementation.
 
+## Saved-version history
+
+Since `0.4.0`, an app save that changes an existing UTF-8 file checkpoints its prior disk contents before replacement. Creation and identical-content saves do not add checkpoints. Import replacement and history replacement use this same write path. Existing binary/oversized files are refused rather than overwritten without a recoverable text checkpoint.
+
+`GET /api/v1/history` lists all retained checkpoints; optional `?path=notes/decision.md` filters by the original path. Paths are immutable capture-time names, not file identities: rename, deletion, and path reuse do not rewrite or erase prior history. On Windows the path filter is case-insensitive. Original-path aliases are not a Git rename-tracking system.
+
+The response is `{ "history": { "path": null, "items": [...], "usage_bytes": 0, "total_items": 0, "unavailable_items": 0, "limits": { "max_bytes": 52428800, "max_items": 200, "max_per_file": 20 } } }`. Counters describe the whole store even when filtered. Ready items contain `id` (32 lowercase hex characters), `version` (format 1), `path`, `saved_at` (UTC checkpoint time), `size` (UTF-8 bytes), `etag` (SHA-256), `sequence` (ordering), and `state: "ready"`. Unknown metadata produces `state: "unavailable"`, `path: null`, and zero/lower-bound size; such items remain visible with any filter and block new checkpoints until inspected or removed.
+
+`GET /api/v1/history/{id}` returns `{ "version": { ...item, "content": "prior text" } }` after verifying the bounded payload's digest. The preview is a read-only operation; the ordinary file endpoint can separately fetch the current disk file and ETag for comparison.
+
+`POST /api/v1/history/{id}/restore` accepts `{ "destination": "notes/recovered.md" }` to create a new copy only, or `{ "destination": "notes/decision.md", "expected_etag": "<current disk SHA-256>" }` to replace an existing, still-matching disk version. Omitting or nulling the ETag never permits replacement. Existing parents and active-file/byte limits apply. The result is `{ "file": { ... } }` with the restored text and new ETag. Replacement checkpoints the current contents first and applies retention; it does not consume the selected version explicitly, although ordinary retention can expire it. Conflicts return 409; no request is automatically replayed.
+
+`DELETE /api/v1/history/{id}?confirm=true` permanently removes only that checkpoint, returning `{ "purged": true }`. Confirmation is mandatory; a missing/expired version returns 404. Metadata's original path is not used as a deletion target. A `history_purge_failed` response may indicate partial removal: refresh before retrying. This is not secure erasure.
+
+History has a separate default 50 MiB / 200-version / 20-per-original-path budget. Oldest versions expire on checkpoint creation to meet per-path limits, then global limits. A new checkpoint is flushed before pruning, so storage temporarily needs one extra version (at most the configured file-size limit) plus metadata. Checkpoint or retention failure blocks the active overwrite; incomplete or excess records can require explicit cleanup. A failed active write can still leave a useful checkpoint and trigger retention. Limits are content budgets, not exact filesystem-allocation limits. No checkpoint is created for unsaved typing or external writes while the app is idle.
+
+All history routes use the existing Host and configured bearer-token guards. History is unencrypted local storage under `.samsarix-history`, excluded from ordinary paths/search/accounting. It persists across restarts and is separate from Trash: even permanent active-file removal or Trash purge leaves older history until explicitly removed or expired. One process per root is supported; this is not an arbitrary-power-loss transaction or off-device backup.
+
 ## Execute a virtual command
 
 `POST /api/v1/terminal/execute`
@@ -145,7 +163,7 @@ Response fields are `session_id`, `output`, `cwd`, integer `exit_code`, and bool
 | 401 | Missing or invalid bearer token |
 | 404 | Entry, parent folder, or session not found |
 | 409 | Existing destination, non-empty folder, edit conflict, or unavailable recovery data |
-| 413 | Request, file, listing, workspace, or Trash quota exceeded |
+| 413 | Request, file, listing, workspace, Trash, or history quota exceeded |
 | 415 | File is not UTF-8 text |
 | 422 | JSON does not match the request schema |
 | 500 | Filesystem operation failed; inspect state before retrying |

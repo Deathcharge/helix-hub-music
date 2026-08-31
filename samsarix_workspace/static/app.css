@@ -354,7 +354,17 @@ h2 { margin-bottom: 0; font-size: 14px; letter-spacing: -0.01em; }
 .toast.error { border-color: rgb(255 110 120 / 40%); color: #ffd7da; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 
+.history-dialog { width: min(900px, calc(100vw - 28px)); max-height: calc(100dvh - 28px); overflow: auto; }
+.history-items { max-height: 240px; overflow: auto; }
+.history-filter input, #history-copy-form input { width: 100%; min-width: 0; }
+.history-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+.history-comparison > div { min-width: 0; }
+.history-comparison textarea { width: 100%; min-height: 200px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--mono); }
+#history-current-status, #history-preview-title { overflow-wrap: anywhere; }
+
 @media (max-width: 760px) {
+  .top-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .history-comparison { grid-template-columns: 1fr; }
   body { overflow: auto; }
   .topbar { position: sticky; top: 0; z-index: 20; grid-template-columns: 1fr auto; }
   .brand { border-right: 0; }
