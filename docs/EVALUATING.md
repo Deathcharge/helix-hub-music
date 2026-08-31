@@ -18,7 +18,7 @@ Use the Python major/minor version, operating system, and architecture matching 
 
 ## Install into a separate environment
 
-Use the matching interpreter as `python` below. Installation downloads exact hash-locked application dependencies from PyPI and finds Samsarix's wheel in the bundle; network access is required. The environment's installer is not an application dependency covered by this lock.
+Use the matching interpreter as `python` below. Installation downloads exact hash-locked application dependencies from PyPI and finds Samsarix's wheel in the bundle; network access is required. First update the environment's installer tools: older Python installations can seed outdated pip/setuptools. The tested tool versions below are separate from the application's runtime hash lock and are downloaded from trusted PyPI, not authenticated by the candidate manifest.
 
 ```text
 python -m venv ../samsarix-pilot-env
@@ -27,6 +27,7 @@ python -m venv ../samsarix-pilot-env
 Windows PowerShell, still in the bundle directory:
 
 ```powershell
+& ../samsarix-pilot-env/Scripts/python.exe -m pip install --only-binary=:all: --upgrade pip==26.2.1 setuptools==84.0.0
 & ../samsarix-pilot-env/Scripts/python.exe -m pip install --require-hashes --only-binary=:all: --find-links . -r runtime-requirements.txt
 & ../samsarix-pilot-env/Scripts/python.exe -m samsarix_workspace init ../samsarix-pilot-documents
 & ../samsarix-pilot-env/Scripts/python.exe -m samsarix_workspace serve ../samsarix-pilot-documents --open
@@ -35,6 +36,7 @@ Windows PowerShell, still in the bundle directory:
 Linux/macOS shell (macOS needs a separately built matching candidate; CI currently produces Linux/Windows bundles):
 
 ```bash
+../samsarix-pilot-env/bin/python -m pip install --only-binary=:all: --upgrade pip==26.2.1 setuptools==84.0.0
 ../samsarix-pilot-env/bin/python -m pip install --require-hashes --only-binary=:all: --find-links . -r runtime-requirements.txt
 ../samsarix-pilot-env/bin/python -m samsarix_workspace init ../samsarix-pilot-documents
 ../samsarix-pilot-env/bin/python -m samsarix_workspace serve ../samsarix-pilot-documents --open

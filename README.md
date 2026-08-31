@@ -167,8 +167,8 @@ The separate browser suite does not replace or lower the Python coverage gate. C
 
 - [Productization record](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/PRODUCTIZATION.md) — forensic baseline, product decision, threat model, completed work, and deferred backlog
 - [Getting started](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/GETTING_STARTED.md) — installation and operating guide
-- [Release evidence](docs/RELEASING.md) — clean-snapshot builds, platform-specific hash locks, CycloneDX inventory, and offline checksum verification; no automatic publication
-- [Pilot evaluation](docs/EVALUATING.md) — install a trusted candidate bundle and evaluate the real recovery journey without submitting private documents
+- [Release evidence](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/RELEASING.md) — clean-snapshot builds, platform-specific hash locks, CycloneDX inventory, and offline checksum verification; no automatic publication
+- [Pilot evaluation](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/EVALUATING.md) — install a trusted candidate bundle and evaluate the real recovery journey without submitting private documents
 - [Security policy](https://github.com/Deathcharge/samsarix-workspace/blob/main/SECURITY.md) — supported version, safe deployment, and private reporting
 - [Licensing guide](https://github.com/Deathcharge/samsarix-workspace/blob/main/LICENSING.md) — practical AGPL explanation and credit expectations
 
