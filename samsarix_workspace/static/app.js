@@ -77,7 +77,9 @@ async function api(path, options = {}) {
   try {
     response = await fetch(path, { ...options, headers, signal: controller.signal });
     try {
-      payload = await response.json();
+      // Parse in this realm: WebKit can reject Response.json() with a DOMException
+      // named SyntaxError rather than a JavaScript SyntaxError instance.
+      payload = JSON.parse(await response.text());
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
       payload = null;

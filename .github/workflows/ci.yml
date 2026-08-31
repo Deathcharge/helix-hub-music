@@ -80,6 +80,8 @@ jobs:
             browser: chromium
           - os: ubuntu-latest
             browser: firefox
+          - os: ubuntu-latest
+            browser: webkit
           - os: windows-latest
             browser: chromium
     steps:

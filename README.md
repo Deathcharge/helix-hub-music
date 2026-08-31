@@ -157,11 +157,11 @@ Browser acceptance tests run against a real loopback server and disposable files
 
 ```bash
 python -m pip install -e ".[dev,browser]"
-python -m playwright install chromium firefox
-python -m pytest e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output output/playwright/local
+python -m playwright install chromium firefox webkit
+python -m pytest e2e -o addopts= --browser chromium --browser firefox --browser webkit --tracing retain-on-failure --screenshot only-on-failure --output output/playwright/local
 ```
 
-The separate browser suite does not replace or lower the Python coverage gate. CI runs Chromium on Windows/Linux and Firefox on Linux; no browser-testing dependencies are required to run the product.
+The separate browser suite does not replace or lower the Python coverage gate. CI runs Chromium on Windows/Linux and Firefox/WebKit on Linux; no browser-testing dependencies are required to run the product. Playwright WebKit is not branded Safari; macOS and physical Apple-device acceptance remain separate checks.
 
 ## Product and security notes
 

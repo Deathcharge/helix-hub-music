@@ -21,6 +21,7 @@ No unreleased changes yet.
 - Saves recheck the disk content after checkpoint creation; newly created targets use exclusive creation even without an explicit create-only flag
 - Existing binary/oversized files cannot be overwritten through text saves because they cannot be safely checkpointed as bounded UTF-8 content
 - History retention may run when preparing a save that subsequently fails; the current file remains unchanged and its checkpoint is retained
+- API response parsing preserves HTTP error/unlock handling in WebKit when an upstream response is not JSON; browser CI now includes WebKit
 
 ## [0.3.0] - 2026-08-31
 
