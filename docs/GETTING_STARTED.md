@@ -129,6 +129,12 @@ The private `.samsarix-history` folder contains original filenames and text, wit
 
 Virtual commands: `history [path]`, `version <id>`, `restore-version <id> <new-path>`, and `purge-version <id> --confirm`. For guarded replacement, append the current disk ETag as the third argument to `restore-version`; the browser preview or file API supplies that ETag. Purging Trash or permanently deleting an active file does not erase separate history checkpoints.
 
+### Backups and rollback
+
+Stop the server before copying the complete workspace, including both private recovery folders, to a separate protected backup location. Verify the backup by starting the same application version against a disposable copy and previewing representative active files, Trash items, and saved versions. Do not run two servers against the original root.
+
+Keep the previous application wheel and the pre-upgrade workspace backup together. For rollback, stop the server, preserve a full copy of the current workspace, install the previous wheel in a separate environment, and use a disposable copy of the matching pre-upgrade backup first. Older releases do not recognize all newer private stores: for example, `0.3.0` does not hide `.samsarix-history`. Do not point an older server at the live upgraded root. Copy any post-upgrade documents you need into the verified rollback workspace deliberately; automatic reverse migration or recovery of expired checkpoints is not provided.
+
 ## Troubleshooting
 
 ### The browser asks for a token

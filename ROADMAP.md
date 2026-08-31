@@ -7,7 +7,7 @@ This roadmap separates four gates: merge, release, publication, and flagship ado
 Portfolio role: **standalone product candidate**. Develop this as a focused standalone product with its own distribution and support boundary. Integrate with the flagship through versioned contracts, not shared private source.
 Planned repository identity: `Deathcharge/samsarix-workspace` (ready).
 
-Current disposition: `0.2.0` document review and `0.2.1` editor reliability are merged in [PR #9](https://github.com/Deathcharge/samsarix-workspace/pull/9) and [PR #12](https://github.com/Deathcharge/samsarix-workspace/pull/12), with green cross-platform CI. The `0.3.0` local Trash increment adds recoverable deletion; publication and adoption remain separate gates. Exact verification belongs in the productization record and pull request.
+Current disposition: document review, editor reliability, and recoverable deletion are merged through [PR #13](https://github.com/Deathcharge/samsarix-workspace/pull/13), with green cross-platform CI. The `0.4.0` saved-version candidate in [PR #14](https://github.com/Deathcharge/samsarix-workspace/pull/14) adds recoverable overwrites and WebKit coverage. Publication and adoption remain separate gates. Exact acceptance evidence belongs in the [productization record](docs/PRODUCTIZATION.md) and pull request.
 
 ## Stabilize the productized default
 
@@ -56,7 +56,8 @@ Current hardening backlog:
 - Separate bounded recovery storage, no silent eviction, and explicit permanent purge
 - Restart, interrupted-move, copy-failure, metadata-boundary, quota, and Windows junction coverage
 - Inline failure/retry handling and preservation of other open editor drafts
-- Honest limits: no saved-edit history, OS Trash integration, encryption, or backup guarantee
+- Merged at `6e5729c`; all seven post-merge CI jobs passed
+- Trash itself is not saved-edit history, OS Trash integration, encryption, or a backup
 
 ## Saved-version recovery (`0.4.0` candidate)
 
@@ -64,9 +65,12 @@ Current hardening backlog:
 - Saved/current disk previews, restore-as-copy, and ETag-guarded in-place replacement
 - Original-path provenance that remains discoverable after rename/deletion
 - Independent private history storage, digest checks, explicit version removal, and draft preservation
-- Storage/API/terminal/browser implementation and initial regressions complete; final package, browser, review, and CI gates remain before merge
+- Storage/API/terminal/browser implementation with 148 passing Python tests and 33 browser scenarios per engine
+- Installed-wheel Chromium, Firefox, and WebKit verification; CI adds WebKit on Linux alongside Chromium on Linux/Windows and Firefox on Linux
+- Non-JSON response handling corrected for WebKit, preserving HTTP/authentication errors and editor drafts
+- Backup/rollback instructions account for older releases not hiding newer private stores
 
-Next highest-value work is completing this increment's acceptance, then a small external pilot using the exact artifact and extended WebKit/real-device validation. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
+Next highest-value work is a small external pilot using the exact artifact, followed by macOS/physical Apple-device validation and reproducible publication/provenance preparation. Playwright WebKit coverage is not branded Safari or physical-device acceptance. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
 
 ## Samsarix adoption
 
