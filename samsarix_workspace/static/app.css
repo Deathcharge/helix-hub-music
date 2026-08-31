@@ -342,6 +342,13 @@ h2 { margin-bottom: 0; font-size: 14px; letter-spacing: -0.01em; }
 .dialog .field-error { min-height: 18px; margin: 7px 0 0; color: var(--danger); font-size: 11px; }
 .dialog-actions { justify-content: flex-end; margin-top: 22px; }
 .conflict-actions { flex-wrap: wrap; }
+.trash-dialog { width: min(680px, calc(100vw - 28px)); max-height: calc(100vh - 40px); }
+.trash-toolbar, .trash-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.trash-items { display: grid; gap: 12px; }
+.trash-item { min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.trash-item h3 { margin: 0 0 6px; font-size: 14px; overflow-wrap: anywhere; }
+.trash-item p { margin: 5px 0 10px; font-size: 12px; overflow-wrap: anywhere; }
+.trash-item code { color: var(--faint); font-size: 10px; overflow-wrap: anywhere; }
 
 .toast { position: fixed; z-index: 80; right: 18px; bottom: 18px; max-width: min(420px, calc(100vw - 36px)); border: 1px solid var(--border); border-radius: 10px; background: #202633; padding: 11px 14px; color: var(--text); box-shadow: 0 12px 40px rgb(0 0 0 / 35%); }
 .toast.error { border-color: rgb(255 110 120 / 40%); color: #ffd7da; }

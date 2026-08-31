@@ -4,7 +4,7 @@ Date: 2026-08-31
 
 Baseline revision: `64ad942bbf9e7f006a6ac481933587559121f50b`
 
-Product: Samsarix Workspace `0.2.1`
+Product: Samsarix Workspace `0.3.0`
 
 Owner: Samsarix LLC
 
@@ -74,9 +74,9 @@ Removed because they were unsupported fragments:
 - Invented pricing, subscriptions, marketplace, provider routing, real-time collaboration, and production-readiness claims
 - Mock-only tests and broad unpinned requirements files
 
-Deferred deliberately after `0.2.0`:
+Deferred deliberately after `0.3.0`:
 
-- Binary/rich-media preview, background autosave, recoverable trash, and version history
+- Binary/rich-media preview, background autosave, and saved-edit version history
 - Multi-user identity, authorization, tenant isolation, and audit logs
 - Collaboration, cloud sync, deployment automation, and hosted operations
 - A real shell, code execution, AI provider access, plugins, or extensions
@@ -96,6 +96,7 @@ FastAPI application
    └── security response headers
             │
             ├── Workspace service ── atomic UTF-8 files under one root
+            │          └── TrashStore ── bounded private recovery records
             │
             └── VirtualShell ─────── direct allowlisted method dispatch
                                      (no subprocess or OS shell)
@@ -126,7 +127,7 @@ Residual assumptions and limitations:
 - A malicious local process with permission to mutate the workspace concurrently may still attempt filesystem time-of-check/time-of-use races. This is a local convenience boundary, not an OS sandbox against another process running as the same user.
 - The bearer token is a shared secret, not user identity. Non-loopback deployments still need TLS, network controls, and operational log handling.
 - Static assets and health metadata are unauthenticated by design so the unlock UI can load; trusted-Host validation still applies.
-- Deletes are permanent; the application has no trash or version history.
+- Regular deletions now move to local Trash; explicit purge and `permanent=true` cannot be restored. Saved-edit version history is not implemented.
 - One unsaved editor draft may be stored in tab-scoped browser `sessionStorage` for reload recovery. It is not sent to Samsarix LLC or a third party.
 
 No credentials, tracking pixels, analytics SDKs, or third-party browser assets are included. API responses do not reveal the absolute host root.
@@ -142,6 +143,8 @@ No credentials, tracking pixels, analytics SDKs, or third-party browser assets a
 - Listing and regular-file accounting do not follow symlinks.
 - The root path cannot be used as a mutation target.
 - Non-empty folder deletion needs an explicit recursive flag and UI confirmation.
+- Recovery records are kept in reserved `.samsarix-trash`, excluded from active APIs/search/accounting; restore uses exclusive destination creation and never overwrites another file.
+- One server instance serializes reads and mutations with a reentrant lock. This does not coordinate multiple processes or constrain hostile same-permission OS writers.
 - Terminal sessions are created by the server, expire after inactivity, and are capped by an LRU ceiling.
 - Oversized declared or streamed bodies receive HTTP 413 before application deserialization completes.
 
@@ -268,11 +271,35 @@ Local artifact SHA-256 digests (build timestamps mean other builds may differ):
 
 Exact-head cross-platform CI and review evidence belong to the `0.2.1` pull request. WebKit, real mobile hardware, external pilot users, and public package publication have not been validated in this increment. The historical `0.2.0` artifacts above must not be presented as hashes of the new source.
 
+## `0.3.0` recoverable deletion
+
+Baseline: clean merged `ab047426e56ba3c4f47c8cc30ecfcd3d6f904ce2`, with all seven jobs in [post-merge CI 33393698031](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33393698031) successful. Local baseline: 56 Python tests passed, one Windows FIFO skip, 90.87% branch-aware coverage; Ruff and Mypy passed. Permanent-only deletion was the next locally actionable P1 reliability gap.
+
+### Product decision and evidence
+
+Official [Nextcloud deleted-file guidance](https://docs.nextcloud.com/server/latest/user_manual/en/files/deleted_file_management.html), checked 2026-08-31, documents recovery, original-path restoration, collision handling, separate quota accounting, and permanent removal. This supports recovery as a recognizable file-workspace job; it is not demand validation. Samsarix deliberately uses explicit collision resolution and refuses new deletion when full instead of implementing retention-based eviction. The freedesktop specification page was unavailable during verification, so no specification-compliance claim is made. The product uses its own portable store, not the operating system's Trash.
+
+Completed implementation:
+
+- [x] API/UI/virtual-command deletion defaults to recoverable Trash; explicit permanent bypass and confirmed single-item purge remain available.
+- [x] Owned, opaque-ID records persist across process restarts; metadata files are flushed before same-filesystem rename, with no copy-and-delete fallback.
+- [x] Separate 50 MiB/100-item/2,000-contained-entry default budgets; no auto-expiry or silent eviction.
+- [x] Reserved paths, Windows reparse/junction handling, malformed metadata, links, active quotas, and stale-delete ETags are validated.
+- [x] Restore exclusively creates files/folders; failed copies retain archives and may leave inspectable partial destinations; cleanup failures return an explicit retained-copy flag.
+- [x] Browser recovery includes collision/error retry, unavailable records, cancellation, loading/empty states, and preserving other editor drafts.
+- [x] Onboarding, API compatibility change, troubleshooting, changelog, and roadmap reflect the implemented behavior.
+
+Risk and operating notes: recovery adds local disk usage, not a provider bill, runtime dependency, remote service, or telemetry. The private store contains original paths and content without encryption. File data/modes/modified times are preserved where supported, not arbitrary ACLs/ownership/alternate streams. One app process per root is supported. Ordinary interrupted operations are tested; arbitrary power loss, filesystem corruption, same-permission hostile writers, and network-filesystem guarantees are not claimed. Purge is normal removal, not secure erasure; external backups remain necessary. Python's [documented `rmtree` behavior](https://docs.python.org/3/library/shutil.html#shutil.rmtree) informs link handling, and a real Windows junction regression verifies target preservation.
+
+### Verification and release acceptance
+
+This increment must pass the unchanged 90% Python coverage gate, lint/format/type checks, JavaScript syntax, installed-wheel browser flows, distribution checks, and exact-head Windows/Linux CI before merge. Local evidence and artifact digests are recorded below as verification finishes. Public publication and external pilot validation remain separate owner gates; this is an alpha release candidate, not a hosted production claim.
+
 ## Next best work
 
 The next release should favor reliability over breadth:
 
-1. Add recoverable trash and bounded version checkpoints before expanding destructive operations.
+1. Add bounded saved-version checkpoints with explicit retention and restore semantics; Trash already covers deletion, not overwriting an existing file.
 2. Extend browser coverage to WebKit, preserving the existing lifecycle regression cases.
 3. Run a small external pilot against the exact wheel and capture consented, privacy-preserving task success/support evidence.
 4. If hosted multi-user use becomes a real requirement, design identity, authorization, per-tenant roots, audit logging, CSRF/origin controls, and deployment isolation as a separate security phase—not as a flag on the local app.

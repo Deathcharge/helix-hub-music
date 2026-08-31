@@ -183,7 +183,7 @@ def test_symlink_escape_is_blocked_for_reads_writes_and_moves(
         workspace.write_file("link/created.txt", "escape")
     with raises_code("symlink_not_allowed"):
         workspace.move("link", "moved")
-    workspace.delete("link")
+    workspace.delete("link", permanent=True)
     assert not link.exists()
     assert (outside / "secret.txt").read_text(encoding="utf-8") == "outside-secret"
 
@@ -194,7 +194,7 @@ def test_broken_symlink_can_be_safely_removed(workspace: Workspace) -> None:
         link.symlink_to(workspace.root.parent / "absent")
     except (OSError, NotImplementedError):
         pytest.skip("symlinks are not available for this test user")
-    workspace.delete("broken")
+    workspace.delete("broken", permanent=True)
     assert not link.is_symlink()
 
 
@@ -217,7 +217,7 @@ def test_hardlink_escape_is_blocked_but_link_can_be_removed(
         workspace.write_file("linked.txt", "changed")
     with raises_code("hardlink_not_allowed"):
         workspace.move("linked.txt", "moved.txt")
-    workspace.delete("linked.txt")
+    workspace.delete("linked.txt", permanent=True)
     assert outside.read_text(encoding="utf-8") == "outside-secret"
     assert not linked.exists()
 

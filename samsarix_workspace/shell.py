@@ -41,7 +41,11 @@ class VirtualShell:
   mkdir <path>         Create one folder
   touch <path>         Create an empty file
   mv <source> <dest>   Move or rename an entry
-  rm [-r] <path>       Delete an entry (-r confirms a folder tree)
+  rm [-r] <path>       Move to Trash (-r confirms a folder tree)
+  rm --permanent [-r] <path>  Permanently delete; cannot be restored
+  trash                List recovery items and their IDs
+  restore <id> [path]  Restore without overwriting an existing path
+  purge <id> --confirm Permanently delete one Trash item
   echo [text]          Print text (redirection is not supported)
   clear                Clear terminal output
 
@@ -75,6 +79,9 @@ This is a safe virtual terminal, not an operating-system shell."""
             "touch": self._touch,
             "mv": self._move,
             "rm": self._remove,
+            "trash": self._trash,
+            "restore": self._restore,
+            "purge": self._purge,
             "echo": self._echo,
             "clear": self._clear,
         }
@@ -251,14 +258,46 @@ This is a safe virtual terminal, not an operating-system shell."""
 
     def _remove(self, args: list[str]) -> ShellResult:
         recursive = False
+        permanent = False
         values = list(args)
+        if values and values[0] == "--permanent":
+            permanent = True
+            values.pop(0)
         if values and values[0] in {"-r", "-R"}:
             recursive = True
             values.pop(0)
-        self._require_count(values, 1, "rm [-r] <path>")
+        self._require_count(values, 1, "rm [--permanent] [-r] <path>")
         target = self._path(values[0])
-        self.workspace.delete(target, recursive=recursive)
-        return ShellResult("", self.cwd)
+        item = self.workspace.delete(target, recursive=recursive, permanent=permanent)
+        message = (
+            f"Moved to Trash: {target} ({item['id']})" if item else f"Permanently deleted: {target}"
+        )
+        return ShellResult(message, self.cwd)
+
+    def _trash(self, args: list[str]) -> ShellResult:
+        self._require_count(args, 0, "trash")
+        items = self.workspace.trash_report()["items"]
+        lines = [
+            f"{item['id']}  {item['state']}  {item['path'] or '(unreadable metadata)'}"
+            for item in items
+        ]
+        return ShellResult("\n".join(lines) or "Trash is empty.", self.cwd)
+
+    def _restore(self, args: list[str]) -> ShellResult:
+        if len(args) not in {1, 2}:
+            raise WorkspaceError("usage", "Usage: restore <id> [path]")
+        destination = self._path(args[1]) if len(args) == 2 else None
+        result = self.workspace.restore(args[0], destination)
+        suffix = (
+            "; Trash cleanup failed, inspect the retained item" if result["trash_retained"] else ""
+        )
+        return ShellResult(f"Restored: {result['entry']['path']}{suffix}", self.cwd)
+
+    def _purge(self, args: list[str]) -> ShellResult:
+        if len(args) != 2 or args[1] != "--confirm":
+            raise WorkspaceError("usage", "Usage: purge <id> --confirm")
+        self.workspace.purge(args[0])
+        return ShellResult("Permanently deleted the Trash item.", self.cwd)
 
     def _echo(self, args: list[str]) -> ShellResult:
         return ShellResult(" ".join(args), self.cwd)

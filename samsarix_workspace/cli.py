@@ -15,6 +15,7 @@ import uvicorn
 
 from samsarix_workspace import __version__
 from samsarix_workspace.api import AppSettings, create_app, normalize_allowed_hosts
+from samsarix_workspace.errors import WorkspaceError
 
 WELCOME = """# Welcome to Samsarix Workspace
 
@@ -132,7 +133,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         allowed_hosts = normalize_allowed_hosts([*defaults, *explicit_hosts])
     except ValueError as exc:
         parser.error(str(exc))
-    app = create_app(AppSettings(workspace_root=root, token=token, allowed_hosts=allowed_hosts))
+    try:
+        app = create_app(AppSettings(workspace_root=root, token=token, allowed_hosts=allowed_hosts))
+    except WorkspaceError as exc:
+        parser.error(exc.message)
     url_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
     display_host = f"[{url_host}]" if ":" in url_host and not url_host.startswith("[") else url_host
     url = f"http://{display_host}:{args.port}"

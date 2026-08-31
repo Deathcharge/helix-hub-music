@@ -94,6 +94,9 @@ def test_command_allowlist_is_initialized_once_and_introspectable(workspace: Wor
         "touch",
         "mv",
         "rm",
+        "trash",
+        "restore",
+        "purge",
         "echo",
         "clear",
     }

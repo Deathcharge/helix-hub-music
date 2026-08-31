@@ -78,6 +78,9 @@ class AppSettings:
     max_file_bytes: int = 1_048_576
     max_total_bytes: int = 52_428_800
     max_entries: int = 2_000
+    max_trash_bytes: int = 52_428_800
+    max_trash_items: int = 100
+    max_trash_entries: int = 2_000
     max_request_bytes: int = 1_310_720
     max_search_bytes: int = 10_485_760
     max_sessions: int = 128
@@ -223,6 +226,10 @@ class MoveRequest(StrictModel):
     destination: str = Field(min_length=1, max_length=512)
 
 
+class RestoreRequest(StrictModel):
+    destination: str | None = Field(default=None, min_length=1, max_length=512)
+
+
 class TerminalRequest(StrictModel):
     command: str = Field(max_length=2_048)
     session_id: str | None = Field(default=None, min_length=36, max_length=36)
@@ -301,6 +308,9 @@ def create_app(
         max_file_bytes=resolved_settings.max_file_bytes,
         max_total_bytes=resolved_settings.max_total_bytes,
         max_entries=resolved_settings.max_entries,
+        max_trash_bytes=resolved_settings.max_trash_bytes,
+        max_trash_items=resolved_settings.max_trash_items,
+        max_trash_entries=resolved_settings.max_trash_entries,
     )
     sessions = ShellSessions(
         workspace,
@@ -437,10 +447,32 @@ def create_app(
 
     @router.delete("/entry")
     def delete_entry(
-        path: Annotated[str, Query(min_length=1, max_length=512)], recursive: bool = False
-    ) -> dict[str, bool]:
-        workspace.delete(path, recursive=recursive)
-        return {"deleted": True}
+        path: Annotated[str, Query(min_length=1, max_length=512)],
+        recursive: bool = False,
+        permanent: bool = False,
+        expected_etag: Annotated[str | None, Query(min_length=64, max_length=64)] = None,
+    ) -> dict[str, Any]:
+        item = workspace.delete(
+            path, recursive=recursive, permanent=permanent, expected_etag=expected_etag
+        )
+        return {"deleted": True, "permanent": permanent, "trash_item": item}
+
+    @router.get("/trash")
+    def list_trash() -> dict[str, Any]:
+        return {"trash": workspace.trash_report()}
+
+    @router.post("/trash/{trash_id}/restore")
+    def restore_item(trash_id: str, payload: RestoreRequest) -> dict[str, Any]:
+        return workspace.restore(trash_id, payload.destination)
+
+    @router.delete("/trash/{trash_id}")
+    def purge_item(trash_id: str, confirm: bool = False) -> dict[str, bool]:
+        if not confirm:
+            raise WorkspaceError(
+                "confirmation_required", "Confirm permanent deletion of this Trash item."
+            )
+        workspace.purge(trash_id)
+        return {"purged": True}
 
     @router.post("/terminal/execute")
     def execute_terminal(payload: TerminalRequest) -> dict[str, Any]:

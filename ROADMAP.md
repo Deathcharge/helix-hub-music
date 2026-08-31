@@ -7,7 +7,7 @@ This roadmap separates four gates: merge, release, publication, and flagship ado
 Portfolio role: **standalone product candidate**. Develop this as a focused standalone product with its own distribution and support boundary. Integrate with the flagship through versioned contracts, not shared private source.
 Planned repository identity: `Deathcharge/samsarix-workspace` (ready).
 
-Current disposition: `0.2.0` document review is merged in PR #9 with cross-platform CI. The `0.2.1` editor-lifecycle and browser-CI reliability increment is tracked in [PR #12](https://github.com/Deathcharge/samsarix-workspace/pull/12); publication and adoption remain separate gates.
+Current disposition: `0.2.0` document review and `0.2.1` editor reliability are merged in [PR #9](https://github.com/Deathcharge/samsarix-workspace/pull/9) and [PR #12](https://github.com/Deathcharge/samsarix-workspace/pull/12), with green cross-platform CI. The `0.3.0` local Trash increment adds recoverable deletion; publication and adoption remain separate gates. Exact verification belongs in the productization record and pull request.
 
 ## Stabilize the productized default
 
@@ -27,8 +27,8 @@ Current hardening backlog:
 - No external user proof that a limited browser file workspace solves a recurring problem.
 - Non-loopback bearer authentication is not a hosted or multiuser security design and lacks built-in TLS.
 - OS-level race/path behavior and recursive deletion need adversarial validation on supported platforms.
-- No release/publish path, immutable distribution, deployment profile, or operational telemetry.
-- Brand and license change from baseline BSL to AGPL-3.0-only require owner/legal approval.
+- Public publication, signed provenance, and package-index ownership remain owner gates; local wheel/sdist builds and CI artifacts are implemented.
+- Owner/legal review of provenance and commercial licensing terms remains prudent before publication; the repository's selected license is AGPL-3.0-only.
 
 ## Document review milestone (`0.2.0`)
 
@@ -47,9 +47,18 @@ Current hardening backlog:
 - Preserve ETag guards through draft restore and keep-editing conflict choices
 - Exercise the full document-review journey and delayed-response failures in browser CI
 - Bound stalled requests and retain manual, guarded retry behavior
-- Keep recoverable trash and version history as the next product increment; neither is implied by tab-scoped drafts
+- Merged at `ab04742`; all seven post-merge CI jobs passed
 
-Next highest-value reliability work after `0.2.1` is recoverable trash/version checkpoints, then a small external user pilot. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
+## Recoverable deletion (`0.3.0`)
+
+- Persistent local Trash shared by UI, API, and virtual commands
+- Restore to the original or an alternate unused path without overwriting
+- Separate bounded recovery storage, no silent eviction, and explicit permanent purge
+- Restart, interrupted-move, copy-failure, metadata-boundary, quota, and Windows junction coverage
+- Inline failure/retry handling and preservation of other open editor drafts
+- Honest limits: no saved-edit history, OS Trash integration, encryption, or backup guarantee
+
+Next highest-value work is bounded saved-version checkpoints, then a small external pilot using the exact artifact and extended WebKit/real-device validation. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
 
 ## Samsarix adoption
 
