@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import os
+import stat
 import sys
 import threading
 import webbrowser
@@ -16,6 +17,8 @@ import uvicorn
 from samsarix_workspace import __version__
 from samsarix_workspace.api import AppSettings, create_app, normalize_allowed_hosts
 from samsarix_workspace.errors import WorkspaceError
+from samsarix_workspace.recovery import linked_metadata
+from samsarix_workspace.workspace import Workspace
 
 WELCOME = """# Welcome to Samsarix Workspace
 
@@ -71,20 +74,31 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _initialize(path: Path) -> int:
-    if path.exists() and not path.is_dir():
-        print(f"error: {path} is not a directory", file=sys.stderr)
-        return 1
     try:
-        path.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        print(f"error: could not create {path}: {exc}", file=sys.stderr)
+        if path.exists() and not path.is_dir():
+            print(f"error: {path} is not a directory", file=sys.stderr)
+            return 1
+        workspace = Workspace(path)
+        try:
+            workspace.write_file("WELCOME.md", WELCOME, create_only=True)
+        except WorkspaceError as exc:
+            if exc.code != "already_exists":
+                raise
+            metadata = (workspace.root / "WELCOME.md").lstat()
+            if (
+                linked_metadata(metadata)
+                or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+            ):
+                raise WorkspaceError(
+                    "invalid_welcome", "Existing WELCOME.md must be an unlinked regular file."
+                ) from exc
+            print(f"Workspace already initialized: {workspace.root}")
+            return 0
+    except (OSError, WorkspaceError) as exc:
+        print(f"error: could not initialize {path}: {exc}", file=sys.stderr)
         return 1
-    welcome = path / "WELCOME.md"
-    if welcome.exists():
-        print(f"Workspace already initialized: {path.resolve()}")
-        return 0
-    welcome.write_text(WELCOME, encoding="utf-8")
-    print(f"Initialized Samsarix Workspace: {path.resolve()}")
+    print(f"Initialized Samsarix Workspace: {workspace.root}")
     return 0
 
 

@@ -234,6 +234,18 @@ def test_file_and_total_quotas_are_enforced(workspace: Workspace) -> None:
     assert small_total.usage_bytes() == 1
 
 
+def test_failed_file_flush_removes_staged_file(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failed_sync(_fd: int) -> None:
+        raise OSError("simulated flush failure")
+
+    monkeypatch.setattr(os, "fsync", failed_sync)
+    with raises_code("write_failed"):
+        workspace.write_file("new.txt", "keep incomplete writes out of the workspace")
+    assert list(workspace.root.iterdir()) == []
+
+
 def test_large_and_binary_files_cannot_be_opened(workspace: Workspace) -> None:
     (workspace.root / "large.bin").write_bytes(b"x" * 257)
     with raises_code("file_too_large"):
