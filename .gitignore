@@ -49,3 +49,4 @@ ENV/
 *.log
 .playwright-cli/
 output/playwright/
+output/releases/

@@ -23,10 +23,82 @@ def test_init_rejects_an_existing_file(tmp_path: Path, capsys: pytest.CaptureFix
     assert "is not a directory" in capsys.readouterr().err
 
 
+def test_init_preserves_a_file_created_during_initialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / "project"
+    target.mkdir()
+    welcome = target / "WELCOME.md"
+    original_exists = Path.exists
+    inserted = False
+
+    def concurrent_exists(path: Path) -> bool:
+        nonlocal inserted
+        if path == welcome and not inserted:
+            inserted = True
+            welcome.write_text("another writer's document", encoding="utf-8")
+            return False
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", concurrent_exists)
+    assert cli.main(["init", str(target)]) == 0
+    assert inserted
+    assert welcome.read_text(encoding="utf-8") == "another writer's document"
+    assert "already initialized" in capsys.readouterr().out
+
+
+def test_init_rejects_dangling_welcome_link(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = tmp_path / "project"
+    target.mkdir()
+    outside = tmp_path / "outside.txt"
+    welcome = target / "WELCOME.md"
+    try:
+        welcome.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not available on this filesystem")
+    assert cli.main(["init", str(target)]) == 1
+    assert not outside.exists()
+    assert welcome.is_symlink()
+    assert "error:" in capsys.readouterr().err
+
+
+def test_init_rejects_a_welcome_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "WELCOME.md").mkdir()
+    assert cli.main(["init", str(tmp_path)]) == 1
+    assert (tmp_path / "WELCOME.md").is_dir()
+    assert "regular file" in capsys.readouterr().err
+
+
+def test_init_handles_a_failed_flush_without_leaving_partial_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failed_sync(_fd: int) -> None:
+        raise OSError("simulated full disk")
+
+    monkeypatch.setattr(cli.os, "fsync", failed_sync)
+    assert cli.main(["init", str(tmp_path)]) == 1
+    assert list(tmp_path.iterdir()) == []
+    assert "error:" in capsys.readouterr().err
+
+
+def test_init_refuses_unowned_recovery_storage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    private = tmp_path / ".samsarix-history"
+    private.mkdir()
+    assert cli.main(["init", str(tmp_path)]) == 1
+    assert list(tmp_path.iterdir()) == [private]
+    assert "error:" in capsys.readouterr().err
+
+
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit, match="0"):
         cli.main(["--version"])
-    assert "samsarix-workspace 0.4.0" in capsys.readouterr().out
+    assert "samsarix-workspace 0.4.1" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "example.test", "::"])

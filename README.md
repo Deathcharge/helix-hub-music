@@ -4,7 +4,7 @@ Samsarix Workspace is a small, local-first browser workspace for persistent text
 
 This repository was previously named `helix-web-os`; that history remains in Git. The product and company identity are now **Samsarix Workspace** by **Samsarix LLC**.
 
-> **Maturity:** `0.4.0` alpha release candidate. Local document review, deleted-file recovery, and saved-version preview/restore are implemented. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal. See the productization record for exact verification evidence.
+> **Maturity:** `0.4.1` alpha release candidate. Local document review, deleted-file recovery, and saved-version preview/restore are implemented. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal. See the productization record for exact verification evidence.
 
 ## What works
 
@@ -69,7 +69,7 @@ python -m samsarix_workspace serve ../my-workspace
 
 ## Safe network use
 
-The default listener is `127.0.0.1` and does not require a token. A non-loopback listener is refused unless `SAMSARIX_WORKSPACE_TOKEN` contains at least 20 characters:
+The CLI's default listener is `127.0.0.1` and does not require a token. The CLI refuses a non-loopback listener unless `SAMSARIX_WORKSPACE_TOKEN` contains at least 20 characters:
 
 ```powershell
 $env:SAMSARIX_WORKSPACE_TOKEN = "replace-with-a-long-random-secret"
@@ -82,6 +82,8 @@ samsarix-workspace serve ../my-workspace --host 0.0.0.0 --allowed-host workspace
 ```
 
 Replace `workspace.example` with the hostname clients actually use; repeat `--allowed-host` for aliases. For any untrusted network, put the service behind a TLS reverse proxy and network access controls. The built-in token is a single-workspace gate, not multi-user identity or tenant isolation. Tokens are ASCII secrets read from the environment, never from a CLI argument, and the browser retains a submitted token only in tab-scoped session storage.
+
+If you embed `create_app()` in another ASGI server, that server owns the socket binding. The factory does not enforce the CLI's bind-address/token-length rule; configure equivalent listener, token, Host, TLS, and network controls yourself.
 
 ## Deliberate limits
 
@@ -144,9 +146,9 @@ See the [API reference](https://github.com/Deathcharge/samsarix-workspace/blob/m
 
 ```bash
 python -m pip install -e ".[dev]"
-python -m ruff check samsarix_workspace tests e2e
-python -m ruff format --check samsarix_workspace tests e2e
-python -m mypy samsarix_workspace
+python -m ruff check samsarix_workspace tests e2e tools
+python -m ruff format --check samsarix_workspace tests e2e tools
+python -m mypy samsarix_workspace tools
 python -m pytest
 python -m build
 ```
@@ -167,6 +169,8 @@ The separate browser suite does not replace or lower the Python coverage gate. C
 
 - [Productization record](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/PRODUCTIZATION.md) — forensic baseline, product decision, threat model, completed work, and deferred backlog
 - [Getting started](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/GETTING_STARTED.md) — installation and operating guide
+- [Release evidence](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/RELEASING.md) — clean-snapshot builds, platform-specific hash locks, CycloneDX inventory, and offline checksum verification; no automatic publication
+- [Pilot evaluation](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/EVALUATING.md) — install a trusted candidate bundle and evaluate the real recovery journey without submitting private documents
 - [Security policy](https://github.com/Deathcharge/samsarix-workspace/blob/main/SECURITY.md) — supported version, safe deployment, and private reporting
 - [Licensing guide](https://github.com/Deathcharge/samsarix-workspace/blob/main/LICENSING.md) — practical AGPL explanation and credit expectations
 

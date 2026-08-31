@@ -592,10 +592,10 @@ class Workspace:
                     suffix=".tmp",
                     delete=False,
                 ) as temporary:
+                    temporary_name = temporary.name
                     temporary.write(content_bytes)
                     temporary.flush()
                     os.fsync(temporary.fileno())
-                    temporary_name = temporary.name
                 if existing is None:
                     os.link(temporary_name, candidate)
                     Path(temporary_name).unlink()

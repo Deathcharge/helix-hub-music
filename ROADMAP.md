@@ -7,7 +7,7 @@ This roadmap separates four gates: merge, release, publication, and flagship ado
 Portfolio role: **standalone product candidate**. Develop this as a focused standalone product with its own distribution and support boundary. Integrate with the flagship through versioned contracts, not shared private source.
 Planned repository identity: `Deathcharge/samsarix-workspace` (ready).
 
-Current disposition: document review, editor reliability, and recoverable deletion are merged through [PR #13](https://github.com/Deathcharge/samsarix-workspace/pull/13), with green cross-platform CI. The `0.4.0` saved-version candidate in [PR #14](https://github.com/Deathcharge/samsarix-workspace/pull/14) adds recoverable overwrites and WebKit coverage. Publication and adoption remain separate gates. Exact acceptance evidence belongs in the [productization record](docs/PRODUCTIZATION.md) and pull request.
+Current disposition: document review, editor reliability, recoverable deletion, and saved versions are merged through [PR #14](https://github.com/Deathcharge/samsarix-workspace/pull/14), with green cross-platform CI. The `0.4.1` candidate hardens initialization and adds a repeatable unsigned release-evidence/pilot bundle. Publication and adoption remain separate gates. Exact acceptance evidence belongs in the [productization record](docs/PRODUCTIZATION.md) and pull request.
 
 ## Stabilize the productized default
 
@@ -69,8 +69,18 @@ Current hardening backlog:
 - Installed-wheel Chromium, Firefox, and WebKit verification; CI adds WebKit on Linux alongside Chromium on Linux/Windows and Firefox on Linux
 - Non-JSON response handling corrected for WebKit, preserving HTTP/authentication errors and editor drafts
 - Backup/rollback instructions account for older releases not hiding newer private stores
+- Merged at `2bebb92`; all eight post-merge CI jobs and the dependency graph check passed
 
-Next highest-value work is a small external pilot using the exact artifact, followed by macOS/physical Apple-device validation and reproducible publication/provenance preparation. Playwright WebKit coverage is not branded Safari or physical-device acceptance. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
+## Pilot release evidence (`0.4.1` candidate)
+
+- Exclusive welcome-file initialization, common path/quota guards, clear failure exits, and staged-write cleanup
+- Clean Git-snapshot builds, Twine checks, runtime-only installation, and a real loopback recovery smoke test
+- Platform-specific hash-locked dependency reinstall and schema-validated CycloneDX inventory with repeat-generation checks
+- Unsigned source/tool/artifact manifest and standalone read-only checksum verifier; no authentication or SLSA claim
+- Packaged consent-conscious pilot instructions; Linux/Windows CI upload only, no publication or signing
+- [PR #15](https://github.com/Deathcharge/samsarix-workspace/pull/15) records candidate acceptance: 198 Python tests plus one Windows-only FIFO skip, 99 local installed-browser checks, scoped security review, and eight-job cross-platform CI
+
+Next highest-value work is a small external pilot using the exact artifact, followed by macOS/physical Apple-device validation and owner-controlled publication/signing preparation. Playwright WebKit coverage is not branded Safari or physical-device acceptance. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
 
 ## Samsarix adoption
 

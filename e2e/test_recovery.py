@@ -104,6 +104,8 @@ def test_stale_editor_delete_rejected_until_reload(
     page: Page, live_workspace: RunningWorkspace
 ) -> None:
     page.get_by_role("treeitem").filter(has_text="alpha.txt").click()
+    # A click schedules the read; establish the old revision before the external edit.
+    expect(page.get_by_role("textbox", name="File editor")).to_have_value("alpha on disk\n")
     (live_workspace.root / "alpha.txt").write_text("other writer", encoding="utf-8")
     page.get_by_role("button", name="Delete", exact=True).click()
     page.get_by_role("button", name="Move to Trash", exact=True).click()

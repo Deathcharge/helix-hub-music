@@ -10,7 +10,7 @@ projects/
 └── my-workspace/       # files shown in Samsarix Workspace
 ```
 
-The application only reads and writes below the workspace folder you pass to `serve`.
+Document operations read and write below the workspace folder you pass to `serve`. The application also reads its installed UI assets and dependencies. This is document-path containment, not an operating-system filesystem sandbox; maintainer build tools have separate, explicitly documented authority.
 
 ## 2. Install from this checkout
 
@@ -31,7 +31,9 @@ samsarix-workspace init ../my-workspace
 samsarix-workspace serve ../my-workspace --open
 ```
 
-`init` creates `WELCOME.md` only when it does not already exist. `serve` creates the chosen directory if necessary and starts at `http://127.0.0.1:8765`.
+`init` creates `WELCOME.md` exclusively using the same path/quota guards as regular workspace writes. An existing regular welcome file is preserved, including one created concurrently. Links, a welcome directory, unrecognized private recovery storage, or a failed write return a nonzero exit and an error without overwriting another entry. Fix the reported condition before retrying. `serve` creates the chosen directory if necessary and starts at `http://127.0.0.1:8765`.
+
+For a trusted prebuilt candidate with exact dependency hashes and a standalone integrity check, use the [pilot bundle guide](EVALUATING.md). The [maintainer workflow](RELEASING.md) explains how to build that bundle without publishing it.
 
 Use `Ctrl+S` (or `Cmd+S`) to save the open document. The yellow dot means the editor differs from the saved file. If another process changed the file after it was opened, saving returns a conflict instead of overwriting the newer content.
 
@@ -56,6 +58,8 @@ idea.md
 | `SAMSARIX_WORKSPACE_ROOT` | Default folder for `serve` when no path argument is supplied |
 | `SAMSARIX_WORKSPACE_TOKEN` | Bearer token required by the API and UI; mandatory for non-loopback binds |
 | `SAMSARIX_WORKSPACE_ALLOWED_HOSTS` | Comma-separated accepted Host values when the app factory is configured from the environment |
+
+The non-loopback bind/token-length check belongs to the CLI. An embedding ASGI server using `create_app()` chooses its own socket and must enforce equivalent listener/token/TLS/network controls; the factory still applies configured Host filtering and optional API bearer authentication.
 
 ## Review a set of documents
 

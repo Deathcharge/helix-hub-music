@@ -6,6 +6,20 @@ Notable changes are recorded here. Versions follow [Semantic Versioning](https:/
 
 No unreleased changes yet.
 
+## [0.4.1] - 2026-08-31
+
+### Fixed
+
+- Initialization now uses the workspace's exclusive, guarded writer; a competing welcome file is preserved, links/directories are rejected, and initialization failures return a useful nonzero exit
+- Write/flush failures clean up the staged temporary file before reporting failure
+- Standalone release tooling requires isolated Python startup before imports, preventing neighboring unverified bundle modules from executing; pilot commands use `-I` too
+
+### Added
+
+- Maintainer-only release-evidence workflow that builds an exact clean Git snapshot, checks a runtime-only installation and real loopback recovery journey, and verifies a hash-locked reinstall
+- Schema-validated CycloneDX runtime inventory, repeat-generation checks, bounded standalone checksum verifier, source/tool/runtime metadata, and a packaged pilot guide
+- Linux/Windows CI evidence bundles with unchanged read-only permissions; no signing, publication, or external pilot claim
+
 ## [0.4.0] - 2026-08-31
 
 ### Added
