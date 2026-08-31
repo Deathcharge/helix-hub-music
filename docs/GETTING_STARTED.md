@@ -18,10 +18,11 @@ Python 3.11 or newer is required.
 
 ```bash
 python -m venv .venv
+python -m pip install --upgrade pip setuptools
 python -m pip install -e .
 ```
 
-Activate `.venv` before the install command if your system does not use the environment's Python automatically. For contributor tools, install `-e ".[dev]"` instead.
+Activate `.venv` before either install command if your system does not use the environment's Python automatically. Old Python installers may seed outdated packaging tools; update them inside the virtual environment, not the system Python. For contributor tools, install `-e ".[dev]"` instead.
 
 ## 3. Initialize and run
 

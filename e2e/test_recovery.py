@@ -145,3 +145,25 @@ def test_virtual_terminal_recovery_flow(page: Page, live_workspace: RunningWorks
     page.get_by_role("button", name="Run", exact=True).click()
     expect(page.get_by_role("treeitem").filter(has_text="alternate.txt")).to_be_visible()
     assert (live_workspace.root / "alternate.txt").read_text() == "alpha on disk\n"
+
+
+def test_folder_tree_recovery_preserves_binary_children(
+    page: Page, live_workspace: RunningWorkspace
+) -> None:
+    folder = live_workspace.root / "bundle"
+    folder.mkdir()
+    (folder / "empty").mkdir()
+    (folder / "binary.dat").write_bytes(b"\xff\x00\xfe")
+    page.get_by_role("button", name="Refresh", exact=True).click()
+    page.get_by_role("treeitem").filter(has_text="bundle").first.click()
+    page.get_by_role("button", name="Delete", exact=True).click()
+    expect(page.locator("#confirm-message")).to_contain_text("and its contents")
+    page.get_by_role("button", name="Move to Trash", exact=True).click()
+    expect(page.get_by_role("heading", name="Choose a file", exact=True)).to_be_visible()
+    assert not folder.exists()
+    page.get_by_role("button", name="Trash", exact=True).click()
+    page.get_by_role("button", name="Restore bundle", exact=True).click()
+    page.get_by_role("button", name="Restore", exact=True).click()
+    expect(page.get_by_role("treeitem").filter(has_text="bundle").first).to_be_visible()
+    assert (folder / "empty").is_dir()
+    assert (folder / "binary.dat").read_bytes() == b"\xff\x00\xfe"

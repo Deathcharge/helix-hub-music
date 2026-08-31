@@ -295,6 +295,33 @@ Risk and operating notes: recovery adds local disk usage, not a provider bill, r
 
 This increment must pass the unchanged 90% Python coverage gate, lint/format/type checks, JavaScript syntax, installed-wheel browser flows, distribution checks, and exact-head Windows/Linux CI before merge. Local evidence and artifact digests are recorded below as verification finishes. Public publication and external pilot validation remain separate owner gates; this is an alpha release candidate, not a hosted production claim.
 
+Verified implementation commit: `f54d4cfd3cf916ffb3aed1a0ac9df9e6fd602991`, [PR #13](https://github.com/Deathcharge/samsarix-workspace/pull/13). Local Python commands used `output/playwright/lifecycle-env/Scripts/python.exe` (Python 3.11.9), except where a fresh runtime-only environment is named.
+
+| Exact command / gate | Observed result |
+| --- | --- |
+| `python -m ruff check samsarix_workspace tests e2e` | Passed |
+| `python -m ruff format --check samsarix_workspace tests e2e` | 18 files already formatted |
+| `python -m mypy samsarix_workspace` | Passed, 8 source files |
+| `python -m pytest --tb=short` | 113 passed, 1 Windows FIFO skip, 91.40% branch-aware coverage |
+| `node --check samsarix_workspace/static/app.js` and `git diff --check` | Passed |
+| `python -m pytest e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output output/playwright/recovery-source-all --tb=short` | 50 passed, 170.51 seconds |
+| Same browser suite from `output/playwright/wheel-check`, with absolute `e2e` path, `SAMSARIX_TEST_INSTALLED=1`, and output `output/playwright/recovery-wheel` | 50 passed against installed wheel, 221.09 seconds |
+| `python -m build --outdir output/playwright/recovery-dist` | Wheel and sdist built in isolated build environments |
+| `py -3.11 -m twine check output/playwright/recovery-dist/samsarix_workspace-0.3.0-py3-none-any.whl output/playwright/recovery-dist/samsarix_workspace-0.3.0.tar.gz` | Both passed |
+| Fresh `output/playwright/recovery-runtime` environment: wheel install, import outside checkout, `python -m samsarix_workspace --version`, `python -m pip check` | Version 0.3.0; installed-package path verified; no broken requirements |
+| `py -3.11 -m pip_audit --path output/playwright/recovery-runtime/Lib/site-packages --skip-editable` | No known vulnerabilities after updating bootstrap tools; unpublished Samsarix package is not in PyPI advisory data |
+| Headed Playwright CLI: delete → Trash → restore, desktop and 390×844 screenshots, browser console | Completed, restored file verified on disk; zero console warnings/errors |
+| [CI 33398348961](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33398348961) at `f54d4cf` | All seven jobs passed: Python 3.11/3.13 on Linux/Windows and 25 browser cases each on Chromium Linux/Windows and Firefox Linux |
+
+Linux CI: 113 passed, 1 Windows-junction skip, 91.06% coverage. Windows CI: 113 passed, 1 FIFO skip, 91.40%. The upstream Starlette/httpx deprecation warning remains unsuppressed. Initial browser-test authoring failures were incorrect expected dialog/empty-state wording, corrected before the passing runs. The first runtime audit reported 14 advisory rows in the old venv-seeded `pip 24.0` / `setuptools 65.5.0`; upgrading those disposable-environment tools to `pip 26.2.1` / `setuptools 84.0.0` cleared the audit without changing application dependencies or ignoring advisories.
+
+Local artifact SHA-256 (from the implementation snapshot; hashes identify these files, not future rebuilds):
+
+- `samsarix_workspace-0.3.0-py3-none-any.whl`: `43c91923710657dbab624771890cd9abb72d1cb7578834bcaabb26e4ce00b9fe`
+- `samsarix_workspace-0.3.0.tar.gz`: `9d4e1618fcc633e4b66eaba9badf5888305eff4957a8b1eccb1446284a4ee80f`
+
+WebKit, macOS runtime, physical mobile hardware, external pilot users, public package publication, and arbitrary power-loss recovery were not validated. Screenshots and disposable test workspaces remain under ignored `output/playwright/`; no user content or production resource was changed by these checks.
+
 ## Next best work
 
 The next release should favor reliability over breadth:
