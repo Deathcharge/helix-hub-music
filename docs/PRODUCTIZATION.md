@@ -322,6 +322,40 @@ Local artifact SHA-256 (from the implementation snapshot; hashes identify these 
 
 WebKit, macOS runtime, physical mobile hardware, external pilot users, public package publication, and arbitrary power-loss recovery were not validated. Screenshots and disposable test workspaces remain under ignored `output/playwright/`; no user content or production resource was changed by these checks.
 
+### Final review follow-up and packaged acceptance
+
+Final runtime/test revision: `9e1cae2d7bd026eb551a55d29b6bd73fbe214de4`. The external [PR #13 review](https://github.com/Deathcharge/samsarix-workspace/pull/13#pullrequestreview-5067295959) found an ordinary host-filesystem race: a directory removed after `os.walk` enumeration could raise an unwrapped metadata error. A shared classifier now skips vanished folders while retaining `WorkspaceError` for other failures; four unit cases cover missing/permission-denied folders in listing/accounting. A separate claimed empty-selection JavaScript failure was disproved by short-circuit analysis and a Chromium/Firefox regression. The reviewer acknowledged both resolutions. No additional paid review was requested after the included quota was exhausted.
+
+Additional browser coverage verifies restoring a complete folder, including binary children and empty subfolders. The final suite has 27 scenarios per browser. The initial 25-case evidence above remains historical, not the final suite count.
+
+| Final command / gate | Observed result |
+| --- | --- |
+| `python -m ruff check samsarix_workspace tests e2e` | Passed |
+| `python -m ruff format --check samsarix_workspace tests e2e` | Passed, 18 files |
+| `python -m mypy samsarix_workspace` | Passed, 8 source files |
+| `python -m pytest --tb=short` in the checkout | 117 passed, 1 Windows FIFO skip; 91.49% branch coverage |
+| `node --check samsarix_workspace/static/app.js` and `git diff --check` | Passed |
+| `python -m build --outdir output/playwright/recovery-reviewed-dist` | sdist and wheel built successfully |
+| `py -3.11 -m twine check output/playwright/recovery-reviewed-dist/samsarix_workspace-0.3.0-py3-none-any.whl output/playwright/recovery-reviewed-dist/samsarix_workspace-0.3.0.tar.gz` | Both passed |
+| `python -m pytest --tb=short` from `output/playwright/recovery-reviewed-sdist/samsarix_workspace-0.3.0` after extracting that sdist | 117 passed, 1 Windows FIFO skip; 91.49% branch coverage, 25.23 seconds |
+| `python -m pytest C:/Users/Andrew/Helix/helix-web-os/e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output C:/Users/Andrew/Helix/helix-web-os/output/playwright/recovery-reviewed-wheel --tb=short` | 54 passed, 215.37 seconds, from `output/playwright/wheel-check` with `SAMSARIX_TEST_INSTALLED=1`; fixture verifies site-packages import |
+| Final wheel installed into `output/playwright/recovery-runtime`; import outside checkout, `python -m samsarix_workspace --version`, `python -m pip check` | Correct installed path, 0.3.0, no broken requirements |
+| `py -3.11 -m pip_audit --path output/playwright/recovery-runtime/Lib/site-packages --skip-editable` | No known dependency vulnerabilities; unpublished Samsarix package excluded by advisory-index availability, not ignored findings |
+| [CI 33400063011](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33400063011) at `9e1cae2` | All seven jobs passed; Windows/Linux Python 3.11/3.13 and installed-wheel Chromium/Firefox jobs |
+
+Final CI counts: 117 Python tests passed with one platform-specific skip on each matrix member; Linux branch coverage 91.15%, Windows 91.49%. Each of the three browser jobs passed 27 scenarios (81 total CI executions).
+
+Final local artifacts at `output/playwright/recovery-reviewed-dist` (the subsequent evidence-only documentation commit does not change packaged files):
+
+- Wheel SHA-256: `08a606e99ada9c0b604156a63488ff5b62cdcecacbcb85125f658edf0457ab6c`
+- sdist SHA-256: `c8509bf41b2cb583571c17c218a74d9420431a8784b29f05e68fc39a7fb7b484`
+
+Codex Security diff scan `f940220f-1a52-4cf9-aa54-78de76eec6b5` completed with no reportable findings for immutable `ab04742..f54d4cf`: all 14 generated source/config/browser-test review items plus the remaining 11 changed test/documentation files were accounted for. An independent architecture review supplied the source-cited trust model. This is scoped review evidence, not proof of universal security. Post-scan folder/empty-selection tests, the walker reliability fix, and final documentation were manually reviewed separately; the scan does not claim to cover later commits. The access/TAC connector was unavailable, but canonical local report finalization succeeded. No persistent security configuration was changed.
+
+Logical commits: `f54d4cf` recovery implementation; `a930fee` packaged folder regression and release evidence; `9e1cae2` traversal reliability and empty-selection regression. Changed implementation surfaces are `trash.py`, `errors.py`, `workspace.py`, `api.py`, `cli.py`, `shell.py`, package/version metadata, and all three static browser files. Supporting changes cover the five Python test modules, browser fixture/document/recovery tests, README, API/onboarding docs, changelog, roadmap, and this record. The PR retains the exact final-head and post-merge CI evidence without implying that a source merge publishes a release.
+
+Disposition: alpha release candidate for a single trusted local user, not a hosted service or externally validated offering. The permanent-only deletion P1 is closed; saved-version checkpoints remain the next local P1. WebKit/physical-device coverage is P2. No known locally actionable P0 remains in the reviewed core journey. Public package ownership/trusted publishing, provenance/signing decisions, legal review for commercial terms, and consented external pilot participation remain owner-controlled gates. No package publication, production deployment, paid service, or outreach was performed.
+
 ## Next best work
 
 The next release should favor reliability over breadth:

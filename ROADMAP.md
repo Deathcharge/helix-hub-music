@@ -26,7 +26,7 @@ Current hardening backlog:
 
 - No external user proof that a limited browser file workspace solves a recurring problem.
 - Non-loopback bearer authentication is not a hosted or multiuser security design and lacks built-in TLS.
-- OS-level race/path behavior and recursive deletion need adversarial validation on supported platforms.
+- Extend the existing traversal, link, Windows-junction, interrupted-delete, and failed-restore regressions across supported platforms; hostile same-permission OS writers remain outside the product boundary.
 - Public publication, signed provenance, and package-index ownership remain owner gates; local wheel/sdist builds and CI artifacts are implemented.
 - Owner/legal review of provenance and commercial licensing terms remains prudent before publication; the repository's selected license is AGPL-3.0-only.
 

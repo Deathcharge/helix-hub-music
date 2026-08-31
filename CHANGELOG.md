@@ -24,6 +24,10 @@ No unreleased changes yet.
 - In-process reads and mutations share a workspace lock; Windows junction/reparse points are blocked consistently
 - Restore uses exclusive destination creation, retains archives on copy failure, and reports cleanup failures without discarding the restored result
 
+### Fixed
+
+- Recursive listing and quota accounting tolerate folders removed after enumeration; other folder metadata failures retain the structured error contract
+
 ## [0.2.1] - 2026-08-31
 
 ### Fixed
