@@ -80,8 +80,8 @@ jobs:
             release_python="$RUNNER_TEMP/release-tools/bin/python"
           fi
           "$release_python" -m pip install -r tools/release-requirements.txt
-          "$release_python" tools/release_evidence.py build "$RUNNER_TEMP/release-evidence"
-          "$release_python" tools/release_evidence.py verify "$RUNNER_TEMP/release-evidence"
+          "$release_python" -I tools/release_evidence.py build "$RUNNER_TEMP/release-evidence"
+          "$release_python" -I tools/release_evidence.py verify "$RUNNER_TEMP/release-evidence"
 
       - name: Upload unsigned release evidence
         if: matrix.python == '3.13'

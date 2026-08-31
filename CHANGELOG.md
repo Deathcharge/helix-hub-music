@@ -12,6 +12,7 @@ No unreleased changes yet.
 
 - Initialization now uses the workspace's exclusive, guarded writer; a competing welcome file is preserved, links/directories are rejected, and initialization failures return a useful nonzero exit
 - Write/flush failures clean up the staged temporary file before reporting failure
+- Standalone release tooling requires isolated Python startup before imports, preventing neighboring unverified bundle modules from executing; pilot commands use `-I` too
 
 ### Added
 

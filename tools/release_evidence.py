@@ -4,7 +4,16 @@ Maintainer build mode executes trusted repository code and fetches tools/depende
 from PyPI. Verify mode only reads files; matching hashes do not authenticate a publisher.
 """
 
-from __future__ import annotations
+# The CLI may be copied beside untrusted bundle files. Only built-in sys may be
+# imported before this check, including no __future__ import. Trusted in-process
+# callers (tests/maintainer code) retain the normal importable helper interface.
+import sys
+
+if __name__ == "__main__" and not sys.flags.isolated:
+    raise SystemExit(
+        "Release evidence requires Python isolated mode (-I). "
+        "Run: python -I <trusted-verifier.py> <build|verify> <directory>"
+    )
 
 import argparse
 import hashlib
@@ -16,7 +25,6 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 import tarfile
 import tempfile
 import tomllib

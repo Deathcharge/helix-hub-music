@@ -23,21 +23,23 @@ Windows PowerShell:
 
 ```powershell
 & output/releases/tools/Scripts/python.exe -m pip install -r tools/release-requirements.txt
-& output/releases/tools/Scripts/python.exe tools/release_evidence.py build output/releases/candidate-windows
-& output/releases/tools/Scripts/python.exe tools/release_evidence.py verify output/releases/candidate-windows
+& output/releases/tools/Scripts/python.exe -I tools/release_evidence.py build output/releases/candidate-windows
+& output/releases/tools/Scripts/python.exe -I tools/release_evidence.py verify output/releases/candidate-windows
 ```
 
 Linux/macOS shell:
 
 ```bash
 output/releases/tools/bin/python -m pip install -r tools/release-requirements.txt
-output/releases/tools/bin/python tools/release_evidence.py build output/releases/candidate-unix
-output/releases/tools/bin/python tools/release_evidence.py verify output/releases/candidate-unix
+output/releases/tools/bin/python -I tools/release_evidence.py build output/releases/candidate-unix
+output/releases/tools/bin/python -I tools/release_evidence.py verify output/releases/candidate-unix
 ```
 
 Keep artifact generation separate from source changes: commit first, then build. The script rejects staged, unstaged, and untracked non-ignored changes. Build mode deliberately uses public PyPI and ignores pip index/config environment overrides; private-index workflows are not supported by this command. Each subprocess has a five-minute timeout, no shell interpolation, and no inherited stdin. Output files remain local until an explicitly configured CI upload or owner-authorized distribution.
 
 Tool bootstrap and the separate pilot-install commands are ordinary pip invocations: they honor the evaluator's pip configuration and require a trusted index (public PyPI by default). The builder records its actual tool environment but does not enforce that the caller created the documented venv or installed the pinned requirements. Follow that setup before building; a successful checksum check does not certify the build environment.
+
+Direct build, verify, and help invocations require `python -I`. Isolation prevents neighboring bundle files from becoming Python imports, including when the trusted verifier is copied into an untrusted directory. The startup guard uses only built-in `sys` before any filesystem-backed import. In-process helper imports are for trusted maintainer/tests only. A trusted interpreter and installed environment are still required: no script can undo startup hooks that ran before it. See [Python isolated mode](https://docs.python.org/3/using/cmdline.html#cmdoption-I).
 
 ## What the command verifies
 

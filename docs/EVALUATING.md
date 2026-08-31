@@ -9,10 +9,12 @@ Obtain the candidate and verifier from a source you trust. A manifest and its fi
 From the bundle directory, using trusted Python 3.11 or newer:
 
 ```text
-python verify_release.py verify .
+python -I verify_release.py verify .
 ```
 
-This reads files only and needs no third-party package or network. It rejects changed, missing, linked, or unlisted files. Keep the bundle unchanged; put environments, notes, and documents outside it. `release-manifest.json` records the source revision, Python/platform, tool versions, artifact hashes, and completed build checks. `runtime.cdx.json` contains the declared dependency/license inventory, not a vulnerability or legal-compliance certificate.
+The `-I` is required: Python's isolated mode keeps neighboring bundle files and `PYTHONPATH` out of its import search. The verifier refuses ordinary direct execution before importing filesystem-backed modules. Use a trusted interpreter and installed environment; this is not an OS sandbox and cannot authenticate a replaced verifier. Imported helper functions are for trusted maintainer/test processes, not an alternative untrusted-bundle launcher.
+
+Verification reads bundle files only and needs no third-party package or network. It rejects changed, missing, linked, or unlisted files. Keep the bundle unchanged; put environments, notes, and documents outside it. `release-manifest.json` records the source revision, Python/platform, tool versions, artifact hashes, and completed build checks. `runtime.cdx.json` contains the declared dependency/license inventory, not a vulnerability or legal-compliance certificate.
 
 Use the Python major/minor version, operating system, and architecture matching `runtime` in the manifest. The hash lock selects wheels resolved for that environment; it is not a universal cross-platform lock. Linux and Windows CI bundles are separate. A different interpreter/platform can correctly fail installation because its wheel has a different hash.
 
@@ -21,25 +23,25 @@ Use the Python major/minor version, operating system, and architecture matching 
 Use the matching interpreter as `python` below. Installation downloads exact hash-locked application dependencies from PyPI and finds Samsarix's wheel in the bundle; network access is required. First update the environment's installer tools: older Python installations can seed outdated pip/setuptools. The tested tool versions below are separate from the application's runtime hash lock and are downloaded from trusted PyPI, not authenticated by the candidate manifest.
 
 ```text
-python -m venv ../samsarix-pilot-env
+python -I -m venv ../samsarix-pilot-env
 ```
 
 Windows PowerShell, still in the bundle directory:
 
 ```powershell
-& ../samsarix-pilot-env/Scripts/python.exe -m pip install --only-binary=:all: --upgrade pip==26.2.1 setuptools==84.0.0
-& ../samsarix-pilot-env/Scripts/python.exe -m pip install --require-hashes --only-binary=:all: --find-links . -r runtime-requirements.txt
-& ../samsarix-pilot-env/Scripts/python.exe -m samsarix_workspace init ../samsarix-pilot-documents
-& ../samsarix-pilot-env/Scripts/python.exe -m samsarix_workspace serve ../samsarix-pilot-documents --open
+& ../samsarix-pilot-env/Scripts/python.exe -I -m pip install --only-binary=:all: --upgrade pip==26.2.1 setuptools==84.0.0
+& ../samsarix-pilot-env/Scripts/python.exe -I -m pip install --require-hashes --only-binary=:all: --find-links . -r runtime-requirements.txt
+& ../samsarix-pilot-env/Scripts/python.exe -I -m samsarix_workspace init ../samsarix-pilot-documents
+& ../samsarix-pilot-env/Scripts/python.exe -I -m samsarix_workspace serve ../samsarix-pilot-documents --open
 ```
 
 Linux/macOS shell (macOS needs a separately built matching candidate; CI currently produces Linux/Windows bundles):
 
 ```bash
-../samsarix-pilot-env/bin/python -m pip install --only-binary=:all: --upgrade pip==26.2.1 setuptools==84.0.0
-../samsarix-pilot-env/bin/python -m pip install --require-hashes --only-binary=:all: --find-links . -r runtime-requirements.txt
-../samsarix-pilot-env/bin/python -m samsarix_workspace init ../samsarix-pilot-documents
-../samsarix-pilot-env/bin/python -m samsarix_workspace serve ../samsarix-pilot-documents --open
+../samsarix-pilot-env/bin/python -I -m pip install --only-binary=:all: --upgrade pip==26.2.1 setuptools==84.0.0
+../samsarix-pilot-env/bin/python -I -m pip install --require-hashes --only-binary=:all: --find-links . -r runtime-requirements.txt
+../samsarix-pilot-env/bin/python -I -m samsarix_workspace init ../samsarix-pilot-documents
+../samsarix-pilot-env/bin/python -I -m samsarix_workspace serve ../samsarix-pilot-documents --open
 ```
 
 Open `http://127.0.0.1:8765` if the browser does not open. Keep the default loopback listener. Stop the server with Ctrl+C when finished. If installation fails, retain the error and environment versions; do not disable hash checks or install into a shared global environment to bypass the failure.

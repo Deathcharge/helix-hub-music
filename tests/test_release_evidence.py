@@ -3,7 +3,9 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -265,3 +267,81 @@ def test_verify_failure_has_nonzero_cli_exit(
 ) -> None:
     assert release.main(["verify", str(tmp_path)]) == 1
     assert "Release evidence failed" in capsys.readouterr().err
+
+
+def standalone_bundle(path: Path) -> Path:
+    """Copy the actual distributed entry point, not an already-imported helper."""
+    manifest = bundle(path)
+    script = path / "verify_release.py"
+    shutil.copyfile(release.__file__, script)
+    manifest["artifacts"][script.name] = release.file_digest(script)
+    rewrite_manifest(path, manifest)
+    return script
+
+
+def standalone_run(script: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, *arguments],
+        cwd=script.parent,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+
+@pytest.mark.parametrize("shadow", ["__future__.py", "argparse.py", "hashlib/__init__.py"])
+@pytest.mark.parametrize("command", ["verify", "build", "--help"])
+def test_standalone_rejects_nonisolated_startup_before_imports(
+    tmp_path: Path, shadow: str, command: str
+) -> None:
+    script = standalone_bundle(tmp_path)
+    target = tmp_path / shadow
+    target.parent.mkdir(exist_ok=True)
+    target.write_text(
+        "with open('import-marker', 'w') as marker:\n"
+        "    marker.write('must not execute')\n"
+        "raise RuntimeError('untrusted module imported')\n",
+        encoding="utf-8",
+    )
+    original_names = {item.relative_to(tmp_path) for item in tmp_path.rglob("*")}
+    result = standalone_run(script, str(script), command, ".")
+    assert result.returncode == 1
+    assert "requires Python isolated mode (-I)" in result.stderr
+    assert not (tmp_path / "import-marker").exists()
+    # Isolated verification treats the same modules/packages as passive extra files.
+    isolated = standalone_run(script, "-I", str(script), "verify", ".")
+    assert isolated.returncode == 1
+    assert "unlisted files or directories" in isolated.stderr
+    assert {item.relative_to(tmp_path) for item in tmp_path.rglob("*")} == original_names
+
+
+def test_standalone_isolated_verification_and_help_preserve_clean_bundle(tmp_path: Path) -> None:
+    script = standalone_bundle(tmp_path)
+    before = {item.name: item.read_bytes() for item in tmp_path.iterdir()}
+    result = standalone_run(script, "-I", str(script), "verify", ".")
+    assert result.returncode == 0, result.stderr
+    assert "Verified 2 artifacts" in result.stdout
+    help_result = standalone_run(script, "-I", str(script), "--help")
+    assert help_result.returncode == 0, help_result.stderr
+    assert "{build,verify}" in help_result.stdout
+    assert {item.name: item.read_bytes() for item in tmp_path.iterdir()} == before
+
+
+def test_standalone_isolated_startup_ignores_pythonpath(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    script = standalone_bundle(candidate)
+    injected = tmp_path / "injected"
+    injected.mkdir()
+    (injected / "sitecustomize.py").write_text(
+        "with open('startup-marker', 'w') as marker:\n    marker.write('must not execute')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", str(injected))
+    result = standalone_run(script, "-I", str(script), "verify", ".")
+    assert result.returncode == 0, result.stderr
+    assert "Verified 2 artifacts" in result.stdout
+    assert not (candidate / "startup-marker").exists()
