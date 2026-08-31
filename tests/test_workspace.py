@@ -304,3 +304,34 @@ def test_special_file_is_identified_without_reading_on_posix(
     os.mkfifo(fifo)
     entry = workspace.list_entries()[0]
     assert entry.kind == "blocked_special"
+
+
+@pytest.mark.parametrize("operation", ["list", "usage"])
+@pytest.mark.parametrize("missing", [True, False])
+def test_walk_handles_disappearing_and_unavailable_directories(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, operation: str, missing: bool
+) -> None:
+    workspace.make_directory("changing")
+    workspace.write_file("changing/hidden.txt", "not counted")
+    workspace.write_file("stable.txt", "ok")
+    changing = workspace.root / "changing"
+    original_lstat = Path.lstat
+
+    def interrupted_lstat(path: Path, *args: object, **kwargs: object) -> os.stat_result:
+        if path == changing:
+            if missing:
+                raise FileNotFoundError("removed after os.walk enumerated it")
+            raise PermissionError("folder permissions changed")
+        return original_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", interrupted_lstat)
+    if not missing:
+        with raises_code("path_unavailable"):
+            if operation == "list":
+                workspace.list_entries(recursive=True)
+            else:
+                workspace.usage_bytes()
+    elif operation == "list":
+        assert [entry.path for entry in workspace.list_entries(recursive=True)] == ["stable.txt"]
+    else:
+        assert workspace.usage_bytes() == 2

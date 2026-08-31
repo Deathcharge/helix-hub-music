@@ -244,6 +244,26 @@ class Workspace:
             return Entry(relative, path.name, "blocked_hardlink", metadata.st_size, modified_at)
         return Entry(relative, path.name, "file", metadata.st_size, modified_at)
 
+    @staticmethod
+    def _walk_directories(current: Path, names: list[str]) -> tuple[list[str], list[str]]:
+        """Classify walk results without following links or failing on removed folders."""
+
+        ordinary: list[str] = []
+        linked: list[str] = []
+        for name in names:
+            if reserved_name(name):
+                continue
+            try:
+                metadata = (current / name).lstat()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise WorkspaceError(
+                    "path_unavailable", "A workspace folder is unavailable."
+                ) from exc
+            (linked if linked_metadata(metadata) else ordinary).append(name)
+        return sorted(ordinary), sorted(linked)
+
     @_locked
     def list_entries(self, path: str = "", *, recursive: bool = False) -> list[Entry]:
         """List a folder with deterministic ordering and an entry ceiling."""
@@ -256,15 +276,10 @@ class Workspace:
         if recursive:
             for current_root, directories, files in os.walk(directory, followlinks=False):
                 current = Path(current_root)
-                directories[:] = [name for name in directories if not reserved_name(name)]
+                ordinary, linked_directories = self._walk_directories(current, directories)
+                directories[:] = ordinary
                 files = [name for name in files if not reserved_name(name)]
-                linked_directories = [
-                    name for name in directories if linked_metadata((current / name).lstat())
-                ]
-                directories[:] = sorted(
-                    name for name in directories if name not in linked_directories
-                )
-                names = [*directories, *sorted(linked_directories), *sorted(files)]
+                names = [*directories, *linked_directories, *sorted(files)]
                 for name in names:
                     entries.append(self._entry(current / name))
                     if len(entries) > self.max_entries:
@@ -473,11 +488,7 @@ class Workspace:
         total = 0
         for current_root, directories, files in os.walk(self.root, followlinks=False):
             current = Path(current_root)
-            directories[:] = [
-                name
-                for name in directories
-                if not reserved_name(name) and not linked_metadata((current / name).lstat())
-            ]
+            directories[:], _ = self._walk_directories(current, directories)
             for name in files:
                 if reserved_name(name):
                     continue

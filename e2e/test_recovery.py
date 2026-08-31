@@ -14,6 +14,15 @@ def delete_alpha(page: Page) -> None:
     expect(page.get_by_role("heading", name="Choose a file", exact=True)).to_be_visible()
 
 
+def test_empty_trash_opens_without_selecting_an_entry(page: Page) -> None:
+    expect(page.get_by_role("heading", name="Choose a file", exact=True)).to_be_visible()
+    expect(page.get_by_role("button", name="Rename", exact=True)).to_be_disabled()
+    page.get_by_role("button", name="Trash", exact=True).click()
+    expect(page.locator("#trash-items")).to_contain_text("Trash is empty.")
+    expect(page.get_by_role("button", name="Refresh Trash", exact=True)).to_be_enabled()
+    expect(page.locator("#trash-dialog")).to_have_attribute("aria-busy", "false")
+
+
 def test_delete_reload_restore_collision_and_explicit_purge(
     page: Page, live_workspace: RunningWorkspace
 ) -> None:
