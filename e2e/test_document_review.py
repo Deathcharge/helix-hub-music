@@ -59,6 +59,6 @@ def test_create_rename_and_confirmed_delete(page: Page, live_workspace: RunningW
     ) == "keep through rename"
     page.get_by_role("button", name="Delete", exact=True).click()
     expect(page.locator("#confirm-message")).to_contain_text("renamed.txt")
-    page.get_by_role("button", name="Delete permanently", exact=True).click()
+    page.get_by_role("button", name="Move to Trash", exact=True).click()
     expect(page.get_by_role("heading", name="Choose a file", exact=True)).to_be_visible()
     assert not (live_workspace.root / "renamed.txt").exists()

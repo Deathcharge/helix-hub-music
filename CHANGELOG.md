@@ -6,6 +6,28 @@ Notable changes are recorded here. Versions follow [Semantic Versioning](https:/
 
 No unreleased changes yet.
 
+## [0.3.0] - 2026-08-31
+
+### Added
+
+- Persistent, bounded local Trash for regular files and complete folders, with restore to an unused original or alternate path
+- Recovery UI with loading, empty, retry, collision, unavailable-item, quota, and explicit permanent-deletion states
+- Authenticated Trash list/restore/purge API routes and virtual `trash`, `restore`, and confirmed `purge` commands
+- Restart, interrupted move, partial restore, disk failure, byte/entry limits, private metadata, and Windows junction regression tests
+- Browser-to-disk recovery acceptance cases, including dirty-editor preservation, stale deletion, and mobile layout
+
+### Changed
+
+- **Pre-1.0 API behavior change:** `DELETE /api/v1/entry`, `Workspace.delete`, and virtual `rm` now move regular entries to Trash by default; immediate deletion requires `permanent=true` or `rm --permanent`
+- Open-file deletion includes an ETag guard; full Trash leaves live content intact and never evicts prior records
+- `.samsarix-trash` is reserved and excluded from active browsing, content search, and usage totals
+- In-process reads and mutations share a workspace lock; Windows junction/reparse points are blocked consistently
+- Restore uses exclusive destination creation, retains archives on copy failure, and reports cleanup failures without discarding the restored result
+
+### Fixed
+
+- Recursive listing and quota accounting tolerate folders removed after enumeration; other folder metadata failures retain the structured error contract
+
 ## [0.2.1] - 2026-08-31
 
 ### Fixed

@@ -13,6 +13,10 @@ const state = {
   loading: false,
   openGeneration: 0,
   mutating: false,
+  trashLoading: false,
+  trashGeneration: 0,
+  restoreItem: null,
+  confirmAction: null,
   terminalSession: null,
   entryMode: "file",
   searchQuery: "",
@@ -39,6 +43,8 @@ const elements = Object.fromEntries(
     "conflict-message", "conflict-cancel", "conflict-reload", "conflict-overwrite", "draft-dialog",
     "draft-message", "draft-discard", "draft-restore", "token-dialog",
     "token-form", "token-input", "token-error", "toast",
+    "trash-button", "trash-dialog", "trash-refresh", "trash-status", "trash-error", "trash-items",
+    "entry-error", "confirm-error", "confirm-submit",
   ].map((id) => [id, document.getElementById(id)])
 );
 
@@ -136,6 +142,11 @@ function updateEditorActions() {
   }
   elements["entry-submit"].disabled = state.mutating;
   elements["confirm-form"].querySelector("[type=submit]").disabled = state.mutating;
+  elements["trash-button"].disabled = busy;
+  elements["trash-refresh"].disabled = busy || state.trashLoading;
+  elements["trash-items"].querySelectorAll("button").forEach((button) => {
+    button.disabled = busy || state.trashLoading || button.dataset.unavailable === "true";
+  });
 }
 
 function updateStats() {
@@ -835,9 +846,12 @@ function openEntryDialog(mode, initialPath = "") {
   state.entryMode = mode;
   const isMove = mode === "move";
   const isFolder = mode === "folder";
-  elements["entry-eyebrow"].textContent = isMove ? "Move or rename" : "Create";
-  elements["entry-title"].textContent = isMove ? "Choose a new path" : isFolder ? "New folder" : "New file";
-  elements["entry-submit"].textContent = isMove ? "Move" : "Create";
+  const isRestore = mode === "restore";
+  if (!isRestore) state.restoreItem = null;
+  elements["entry-eyebrow"].textContent = isRestore ? "Recover from Trash" : isMove ? "Move or rename" : "Create";
+  elements["entry-title"].textContent = isRestore ? "Restore to a path" : isMove ? "Choose a new path" : isFolder ? "New folder" : "New file";
+  elements["entry-submit"].textContent = isRestore ? "Restore" : isMove ? "Move" : "Create";
+  elements["entry-error"].textContent = "";
   elements["entry-path"].value = initialPath;
   elements["entry-dialog"].showModal();
   elements["entry-path"].focus();
@@ -850,14 +864,22 @@ async function submitEntry(event) {
   const path = elements["entry-path"].value.trim();
   if (!path) return;
   const mode = state.entryMode;
+  if (mode === "restore" && !state.restoreItem) return;
+  elements["entry-error"].textContent = "";
   const movedKind = state.selectedKind;
   const opensFile = mode === "file" || (mode === "move" && movedKind === "file");
   if (opensFile && !canLeaveEditor()) return;
   state.mutating = true;
   updateEditorActions();
   let succeeded = false;
+  let restoredCopyRetained = false;
   try {
-    if (mode === "file") {
+    if (mode === "restore") {
+      const result = await api(`/api/v1/trash/${state.restoreItem.id}/restore`, {
+        method: "POST", body: JSON.stringify({ destination: path }),
+      });
+      restoredCopyRetained = result.trash_retained;
+    } else if (mode === "file") {
       await api("/api/v1/file", {
         method: "PUT",
         body: JSON.stringify({ path, content: "", create_only: true }),
@@ -874,8 +896,11 @@ async function submitEntry(event) {
     elements["entry-dialog"].close();
     await refreshWorkspace();
     succeeded = true;
-    toast(mode === "move" ? `Moved to ${path}` : `Created ${path}`);
+    if (mode === "restore") {
+      toast(restoredCopyRetained ? `Restored ${path}; Trash cleanup failed. Inspect the retained item.` : `Restored ${path}`, restoredCopyRetained);
+    } else toast(mode === "move" ? `Moved to ${path}` : `Created ${path}`);
   } catch (error) {
+    elements["entry-error"].textContent = error.message || "The file operation failed.";
     showError(error);
   } finally {
     state.mutating = false;
@@ -889,33 +914,141 @@ async function submitEntry(event) {
   }
 }
 
+async function openTrash() {
+  if (state.loading || state.saving || state.mutating) return;
+  if (!elements["trash-dialog"].open) elements["trash-dialog"].showModal();
+  await loadTrash();
+  if (elements["trash-dialog"].open) elements["trash-refresh"].focus();
+}
+
+async function loadTrash() {
+  const generation = ++state.trashGeneration;
+  state.trashLoading = true;
+  elements["trash-dialog"].setAttribute("aria-busy", "true");
+  elements["trash-status"].textContent = "Loading recovery items…";
+  elements["trash-error"].textContent = "";
+  updateEditorActions();
+  try {
+    const { trash } = await api("/api/v1/trash");
+    if (generation !== state.trashGeneration) return;
+    elements["trash-items"].replaceChildren();
+    const prefix = trash.unavailable_items ? "At least " : "";
+    elements["trash-status"].textContent = `${trash.items.length} / ${trash.limits.max_items} items · ${prefix}${formatBytes(trash.usage_bytes)} / ${formatBytes(trash.limits.max_bytes)} · ${trash.entries} / ${trash.limits.max_entries} entries`;
+    if (trash.unavailable_items) elements["trash-error"].textContent = "Unreadable items block further deletion until inspected or permanently deleted.";
+    if (!trash.items.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "Trash is empty. Deleted files and folders will appear here.";
+      elements["trash-items"].append(empty);
+    }
+    for (const item of trash.items) {
+      const card = document.createElement("section");
+      card.className = "trash-item";
+      card.dataset.trashId = item.id;
+      const heading = document.createElement("h3");
+      heading.textContent = item.path || "Unreadable recovery item";
+      const details = document.createElement("p");
+      details.textContent = item.state === "ready"
+        ? `${item.kind} · ${formatBytes(item.bytes)} · ${new Date(item.deleted_at).toLocaleString()}`
+        : item.message;
+      const identity = document.createElement("code");
+      identity.textContent = item.id;
+      const actions = document.createElement("div");
+      actions.className = "trash-actions";
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.className = "button primary";
+      restore.textContent = "Restore";
+      restore.setAttribute("aria-label", `Restore ${item.path || item.id}`);
+      restore.dataset.unavailable = String(item.state !== "ready");
+      restore.addEventListener("click", () => {
+        if (state.mutating || state.trashLoading || item.state !== "ready") return;
+        state.restoreItem = item;
+        elements["trash-dialog"].close();
+        openEntryDialog("restore", item.path);
+      });
+      const purge = document.createElement("button");
+      purge.type = "button";
+      purge.className = "button danger-ghost";
+      purge.textContent = "Delete permanently";
+      purge.setAttribute("aria-label", `Permanently delete ${item.path || item.id}`);
+      purge.addEventListener("click", () => requestPurge(item));
+      actions.append(restore, purge);
+      card.append(heading, identity, details, actions);
+      elements["trash-items"].append(card);
+    }
+  } catch (error) {
+    if (generation !== state.trashGeneration) return;
+    elements["trash-items"].replaceChildren();
+    elements["trash-status"].textContent = "Trash could not be loaded.";
+    elements["trash-error"].textContent = error.message || "Refresh Trash to retry.";
+  } finally {
+    if (generation === state.trashGeneration) {
+      state.trashLoading = false;
+      elements["trash-dialog"].setAttribute("aria-busy", "false");
+      updateEditorActions();
+    }
+  }
+}
+
+function requestPurge(item) {
+  if (state.mutating || state.trashLoading) return;
+  state.confirmAction = { type: "purge", id: item.id };
+  elements["confirm-title"].textContent = "Permanently delete recovery item?";
+  elements["confirm-message"].textContent = `${item.path || item.id} will be removed from Trash. It cannot be restored through Samsarix Workspace afterward.`;
+  elements["confirm-submit"].textContent = "Delete permanently";
+  elements["confirm-error"].textContent = "";
+  elements["confirm-dialog"].showModal();
+}
+
 function requestDelete() {
   if (!state.selectedPath || state.loading || state.saving || state.mutating) return;
-  elements["confirm-title"].textContent = `Delete ${state.selectedKind === "directory" ? "folder" : "file"}?`;
-  elements["confirm-message"].textContent = state.selectedKind === "directory"
-    ? `${state.selectedPath} and everything inside it will be permanently removed.`
-    : `${state.selectedPath} will be permanently removed.`;
+  const permanent = state.selectedKind.startsWith("blocked");
+  state.confirmAction = {
+    type: "delete", path: state.selectedPath, recursive: state.selectedKind === "directory",
+    permanent, etag: state.selectedKind === "file" ? state.etag : null,
+  };
+  elements["confirm-title"].textContent = permanent ? "Permanently remove blocked entry?" : "Move to Trash?";
+  elements["confirm-message"].textContent = permanent
+    ? `${state.selectedPath} cannot be recovered by Trash. Only this link or special entry will be removed, not a link target.`
+    : `${state.selectedPath}${state.selectedKind === "directory" ? " and its contents" : ""} will move to local Trash and can be restored. ${state.dirty ? "Unsaved editor changes will be discarded; only the disk version is kept." : "Nothing is permanently deleted yet."}`;
+  elements["confirm-submit"].textContent = permanent ? "Delete permanently" : "Move to Trash";
+  elements["confirm-error"].textContent = "";
   elements["confirm-dialog"].showModal();
 }
 
 async function confirmDelete(event) {
   event.preventDefault();
   if (state.loading || state.saving || state.mutating) return;
-  const path = state.selectedPath;
-  if (!path) return;
+  const action = state.confirmAction;
+  if (!action) return;
+  elements["confirm-error"].textContent = "";
   state.mutating = true;
   updateEditorActions();
   try {
-    await api(`/api/v1/entry?path=${encodeURIComponent(path)}&recursive=${state.selectedKind === "directory"}`, { method: "DELETE" });
-    elements["confirm-dialog"].close();
-    closeDocument();
-    await refreshWorkspace({ keepSelection: false });
-    toast(`Deleted ${path}`);
+    if (action.type === "purge") {
+      await api(`/api/v1/trash/${action.id}?confirm=true`, { method: "DELETE" });
+      elements["confirm-dialog"].close();
+      await loadTrash();
+      toast("Permanently deleted the Trash item.");
+    } else {
+      const query = new URLSearchParams({ path: action.path, recursive: String(action.recursive), permanent: String(action.permanent) });
+      if (action.etag) query.set("expected_etag", action.etag);
+      await api(`/api/v1/entry?${query}`, { method: "DELETE" });
+      elements["confirm-dialog"].close();
+      closeDocument();
+      await refreshWorkspace({ keepSelection: false });
+      toast(action.permanent ? `Permanently deleted ${action.path}` : `Moved ${action.path} to Trash`);
+    }
+    state.confirmAction = null;
   } catch (error) {
+    elements["confirm-error"].textContent = error.message || "The operation failed.";
     showError(error);
   } finally {
     state.mutating = false;
     updateEditorActions();
+    if (action.type === "purge" && !elements["confirm-dialog"].open && elements["trash-dialog"].open) {
+      elements["trash-refresh"].focus();
+    }
   }
 }
 
@@ -953,7 +1086,7 @@ async function runTerminal(event) {
     elements["terminal-prompt"].textContent = `${payload.cwd}$`;
     if (payload.clear) elements["terminal-output"].replaceChildren();
     appendTerminal(payload.output, payload.exit_code ? "terminal-error" : "");
-    if (["mkdir", "touch", "mv", "rm"].includes(command.split(/\s+/, 1)[0])) await refreshWorkspace();
+    if (["mkdir", "touch", "mv", "rm", "restore", "purge"].includes(command.split(/\s+/, 1)[0].toLowerCase())) await refreshWorkspace();
   } catch (error) {
     appendTerminal(error.message || "Terminal request failed.", "terminal-error");
   }
@@ -982,6 +1115,8 @@ async function submitToken(event) {
 }
 
 elements["refresh-button"].addEventListener("click", () => refreshWorkspace());
+elements["trash-button"].addEventListener("click", openTrash);
+elements["trash-refresh"].addEventListener("click", loadTrash);
 elements["import-button"].addEventListener("click", () => elements["file-input"].click());
 elements["file-input"].addEventListener("change", importFiles);
 elements["new-file-button"].addEventListener("click", () => openEntryDialog("file"));

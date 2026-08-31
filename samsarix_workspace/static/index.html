@@ -26,6 +26,7 @@
         <span id="usage" class="muted"></span>
       </div>
       <nav class="top-actions" aria-label="Workspace actions">
+        <button id="trash-button" class="button ghost" type="button">Trash</button>
         <button id="refresh-button" class="button ghost" type="button" title="Refresh files">Refresh</button>
         <a class="button ghost" href="/openapi.json" target="_blank" rel="noreferrer">API</a>
       </nav>
@@ -117,13 +118,14 @@
       </main>
     </div>
 
-    <dialog id="entry-dialog" class="dialog">
+    <dialog id="entry-dialog" class="dialog" aria-labelledby="entry-title">
       <form id="entry-form" method="dialog">
         <p id="entry-eyebrow" class="eyebrow">Create</p>
         <h2 id="entry-title">New file</h2>
         <label for="entry-path">Workspace path</label>
         <input id="entry-path" name="path" maxlength="512" required placeholder="notes/idea.md" autocomplete="off">
         <p class="field-note">Use forward slashes. Parent folders must already exist.</p>
+        <p id="entry-error" class="field-error" role="alert"></p>
         <div class="dialog-actions">
           <button class="button ghost" value="cancel" type="button" data-close-dialog>Cancel</button>
           <button id="entry-submit" class="button primary" value="submit" type="submit">Create</button>
@@ -131,16 +133,32 @@
       </form>
     </dialog>
 
-    <dialog id="confirm-dialog" class="dialog">
+    <dialog id="confirm-dialog" class="dialog" aria-labelledby="confirm-title">
       <form id="confirm-form" method="dialog">
         <p class="eyebrow">Please confirm</p>
         <h2 id="confirm-title">Delete this entry?</h2>
         <p id="confirm-message"></p>
+        <p id="confirm-error" class="field-error" role="alert"></p>
         <div class="dialog-actions">
           <button class="button ghost" type="button" data-close-dialog>Cancel</button>
-          <button class="button danger" value="confirm" type="submit">Delete permanently</button>
+          <button id="confirm-submit" class="button danger" value="confirm" type="submit">Move to Trash</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="trash-dialog" class="dialog trash-dialog" aria-labelledby="trash-title">
+      <div>
+        <p class="eyebrow">Local recovery</p>
+        <h2 id="trash-title">Trash</h2>
+        <p>Deleted disk content stays here until restored or permanently deleted. This is not a backup or your operating system's Recycle Bin.</p>
+        <div class="trash-toolbar">
+          <button id="trash-refresh" class="button ghost" type="button">Refresh Trash</button>
+          <button class="button ghost" type="button" data-close-dialog>Close</button>
+        </div>
+        <p id="trash-status" role="status" aria-live="polite"></p>
+        <p id="trash-error" class="field-error" role="alert"></p>
+        <div id="trash-items" class="trash-items"></div>
+      </div>
     </dialog>
 
     <dialog id="conflict-dialog" class="dialog">

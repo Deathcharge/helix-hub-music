@@ -4,7 +4,7 @@ Date: 2026-08-31
 
 Baseline revision: `64ad942bbf9e7f006a6ac481933587559121f50b`
 
-Product: Samsarix Workspace `0.2.1`
+Product: Samsarix Workspace `0.3.0`
 
 Owner: Samsarix LLC
 
@@ -74,9 +74,9 @@ Removed because they were unsupported fragments:
 - Invented pricing, subscriptions, marketplace, provider routing, real-time collaboration, and production-readiness claims
 - Mock-only tests and broad unpinned requirements files
 
-Deferred deliberately after `0.2.0`:
+Deferred deliberately after `0.3.0`:
 
-- Binary/rich-media preview, background autosave, recoverable trash, and version history
+- Binary/rich-media preview, background autosave, and saved-edit version history
 - Multi-user identity, authorization, tenant isolation, and audit logs
 - Collaboration, cloud sync, deployment automation, and hosted operations
 - A real shell, code execution, AI provider access, plugins, or extensions
@@ -96,6 +96,7 @@ FastAPI application
    └── security response headers
             │
             ├── Workspace service ── atomic UTF-8 files under one root
+            │          └── TrashStore ── bounded private recovery records
             │
             └── VirtualShell ─────── direct allowlisted method dispatch
                                      (no subprocess or OS shell)
@@ -126,7 +127,7 @@ Residual assumptions and limitations:
 - A malicious local process with permission to mutate the workspace concurrently may still attempt filesystem time-of-check/time-of-use races. This is a local convenience boundary, not an OS sandbox against another process running as the same user.
 - The bearer token is a shared secret, not user identity. Non-loopback deployments still need TLS, network controls, and operational log handling.
 - Static assets and health metadata are unauthenticated by design so the unlock UI can load; trusted-Host validation still applies.
-- Deletes are permanent; the application has no trash or version history.
+- Regular deletions now move to local Trash; explicit purge and `permanent=true` cannot be restored. Saved-edit version history is not implemented.
 - One unsaved editor draft may be stored in tab-scoped browser `sessionStorage` for reload recovery. It is not sent to Samsarix LLC or a third party.
 
 No credentials, tracking pixels, analytics SDKs, or third-party browser assets are included. API responses do not reveal the absolute host root.
@@ -142,6 +143,8 @@ No credentials, tracking pixels, analytics SDKs, or third-party browser assets a
 - Listing and regular-file accounting do not follow symlinks.
 - The root path cannot be used as a mutation target.
 - Non-empty folder deletion needs an explicit recursive flag and UI confirmation.
+- Recovery records are kept in reserved `.samsarix-trash`, excluded from active APIs/search/accounting; restore uses exclusive destination creation and never overwrites another file.
+- One server instance serializes reads and mutations with a reentrant lock. This does not coordinate multiple processes or constrain hostile same-permission OS writers.
 - Terminal sessions are created by the server, expire after inactivity, and are capped by an LRU ceiling.
 - Oversized declared or streamed bodies receive HTTP 413 before application deserialization completes.
 
@@ -268,11 +271,96 @@ Local artifact SHA-256 digests (build timestamps mean other builds may differ):
 
 Exact-head cross-platform CI and review evidence belong to the `0.2.1` pull request. WebKit, real mobile hardware, external pilot users, and public package publication have not been validated in this increment. The historical `0.2.0` artifacts above must not be presented as hashes of the new source.
 
+## `0.3.0` recoverable deletion
+
+Baseline: clean merged `ab047426e56ba3c4f47c8cc30ecfcd3d6f904ce2`, with all seven jobs in [post-merge CI 33393698031](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33393698031) successful. Local baseline: 56 Python tests passed, one Windows FIFO skip, 90.87% branch-aware coverage; Ruff and Mypy passed. Permanent-only deletion was the next locally actionable P1 reliability gap.
+
+### Product decision and evidence
+
+Official [Nextcloud deleted-file guidance](https://docs.nextcloud.com/server/latest/user_manual/en/files/deleted_file_management.html), checked 2026-08-31, documents recovery, original-path restoration, collision handling, separate quota accounting, and permanent removal. This supports recovery as a recognizable file-workspace job; it is not demand validation. Samsarix deliberately uses explicit collision resolution and refuses new deletion when full instead of implementing retention-based eviction. The freedesktop specification page was unavailable during verification, so no specification-compliance claim is made. The product uses its own portable store, not the operating system's Trash.
+
+Completed implementation:
+
+- [x] API/UI/virtual-command deletion defaults to recoverable Trash; explicit permanent bypass and confirmed single-item purge remain available.
+- [x] Owned, opaque-ID records persist across process restarts; metadata files are flushed before same-filesystem rename, with no copy-and-delete fallback.
+- [x] Separate 50 MiB/100-item/2,000-contained-entry default budgets; no auto-expiry or silent eviction.
+- [x] Reserved paths, Windows reparse/junction handling, malformed metadata, links, active quotas, and stale-delete ETags are validated.
+- [x] Restore exclusively creates files/folders; failed copies retain archives and may leave inspectable partial destinations; cleanup failures return an explicit retained-copy flag.
+- [x] Browser recovery includes collision/error retry, unavailable records, cancellation, loading/empty states, and preserving other editor drafts.
+- [x] Onboarding, API compatibility change, troubleshooting, changelog, and roadmap reflect the implemented behavior.
+
+Risk and operating notes: recovery adds local disk usage, not a provider bill, runtime dependency, remote service, or telemetry. The private store contains original paths and content without encryption. File data/modes/modified times are preserved where supported, not arbitrary ACLs/ownership/alternate streams. One app process per root is supported. Ordinary interrupted operations are tested; arbitrary power loss, filesystem corruption, same-permission hostile writers, and network-filesystem guarantees are not claimed. Purge is normal removal, not secure erasure; external backups remain necessary. Python's [documented `rmtree` behavior](https://docs.python.org/3/library/shutil.html#shutil.rmtree) informs link handling, and a real Windows junction regression verifies target preservation.
+
+### Verification and release acceptance
+
+This increment must pass the unchanged 90% Python coverage gate, lint/format/type checks, JavaScript syntax, installed-wheel browser flows, distribution checks, and exact-head Windows/Linux CI before merge. Local evidence and artifact digests are recorded below as verification finishes. Public publication and external pilot validation remain separate owner gates; this is an alpha release candidate, not a hosted production claim.
+
+Verified implementation commit: `f54d4cfd3cf916ffb3aed1a0ac9df9e6fd602991`, [PR #13](https://github.com/Deathcharge/samsarix-workspace/pull/13). Local Python commands used `output/playwright/lifecycle-env/Scripts/python.exe` (Python 3.11.9), except where a fresh runtime-only environment is named.
+
+| Exact command / gate | Observed result |
+| --- | --- |
+| `python -m ruff check samsarix_workspace tests e2e` | Passed |
+| `python -m ruff format --check samsarix_workspace tests e2e` | 18 files already formatted |
+| `python -m mypy samsarix_workspace` | Passed, 8 source files |
+| `python -m pytest --tb=short` | 113 passed, 1 Windows FIFO skip, 91.40% branch-aware coverage |
+| `node --check samsarix_workspace/static/app.js` and `git diff --check` | Passed |
+| `python -m pytest e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output output/playwright/recovery-source-all --tb=short` | 50 passed, 170.51 seconds |
+| Same browser suite from `output/playwright/wheel-check`, with absolute `e2e` path, `SAMSARIX_TEST_INSTALLED=1`, and output `output/playwright/recovery-wheel` | 50 passed against installed wheel, 221.09 seconds |
+| `python -m build --outdir output/playwright/recovery-dist` | Wheel and sdist built in isolated build environments |
+| `py -3.11 -m twine check output/playwright/recovery-dist/samsarix_workspace-0.3.0-py3-none-any.whl output/playwright/recovery-dist/samsarix_workspace-0.3.0.tar.gz` | Both passed |
+| Fresh `output/playwright/recovery-runtime` environment: wheel install, import outside checkout, `python -m samsarix_workspace --version`, `python -m pip check` | Version 0.3.0; installed-package path verified; no broken requirements |
+| `py -3.11 -m pip_audit --path output/playwright/recovery-runtime/Lib/site-packages --skip-editable` | No known vulnerabilities after updating bootstrap tools; unpublished Samsarix package is not in PyPI advisory data |
+| Headed Playwright CLI: delete → Trash → restore, desktop and 390×844 screenshots, browser console | Completed, restored file verified on disk; zero console warnings/errors |
+| [CI 33398348961](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33398348961) at `f54d4cf` | All seven jobs passed: Python 3.11/3.13 on Linux/Windows and 25 browser cases each on Chromium Linux/Windows and Firefox Linux |
+
+Linux CI: 113 passed, 1 Windows-junction skip, 91.06% coverage. Windows CI: 113 passed, 1 FIFO skip, 91.40%. The upstream Starlette/httpx deprecation warning remains unsuppressed. Initial browser-test authoring failures were incorrect expected dialog/empty-state wording, corrected before the passing runs. The first runtime audit reported 14 advisory rows in the old venv-seeded `pip 24.0` / `setuptools 65.5.0`; upgrading those disposable-environment tools to `pip 26.2.1` / `setuptools 84.0.0` cleared the audit without changing application dependencies or ignoring advisories.
+
+Local artifact SHA-256 (from the implementation snapshot; hashes identify these files, not future rebuilds):
+
+- `samsarix_workspace-0.3.0-py3-none-any.whl`: `43c91923710657dbab624771890cd9abb72d1cb7578834bcaabb26e4ce00b9fe`
+- `samsarix_workspace-0.3.0.tar.gz`: `9d4e1618fcc633e4b66eaba9badf5888305eff4957a8b1eccb1446284a4ee80f`
+
+WebKit, macOS runtime, physical mobile hardware, external pilot users, public package publication, and arbitrary power-loss recovery were not validated. Screenshots and disposable test workspaces remain under ignored `output/playwright/`; no user content or production resource was changed by these checks.
+
+### Final review follow-up and packaged acceptance
+
+Final runtime/test revision: `9e1cae2d7bd026eb551a55d29b6bd73fbe214de4`. The external [PR #13 review](https://github.com/Deathcharge/samsarix-workspace/pull/13#pullrequestreview-5067295959) found an ordinary host-filesystem race: a directory removed after `os.walk` enumeration could raise an unwrapped metadata error. A shared classifier now skips vanished folders while retaining `WorkspaceError` for other failures; four unit cases cover missing/permission-denied folders in listing/accounting. A separate claimed empty-selection JavaScript failure was disproved by short-circuit analysis and a Chromium/Firefox regression. The reviewer acknowledged both resolutions. No additional paid review was requested after the included quota was exhausted.
+
+Additional browser coverage verifies restoring a complete folder, including binary children and empty subfolders. The final suite has 27 scenarios per browser. The initial 25-case evidence above remains historical, not the final suite count.
+
+| Final command / gate | Observed result |
+| --- | --- |
+| `python -m ruff check samsarix_workspace tests e2e` | Passed |
+| `python -m ruff format --check samsarix_workspace tests e2e` | Passed, 18 files |
+| `python -m mypy samsarix_workspace` | Passed, 8 source files |
+| `python -m pytest --tb=short` in the checkout | 117 passed, 1 Windows FIFO skip; 91.49% branch coverage |
+| `node --check samsarix_workspace/static/app.js` and `git diff --check` | Passed |
+| `python -m build --outdir output/playwright/recovery-reviewed-dist` | sdist and wheel built successfully |
+| `py -3.11 -m twine check output/playwright/recovery-reviewed-dist/samsarix_workspace-0.3.0-py3-none-any.whl output/playwright/recovery-reviewed-dist/samsarix_workspace-0.3.0.tar.gz` | Both passed |
+| `python -m pytest --tb=short` from `output/playwright/recovery-reviewed-sdist/samsarix_workspace-0.3.0` after extracting that sdist | 117 passed, 1 Windows FIFO skip; 91.49% branch coverage, 25.23 seconds |
+| `python -m pytest C:/Users/Andrew/Helix/helix-web-os/e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output C:/Users/Andrew/Helix/helix-web-os/output/playwright/recovery-reviewed-wheel --tb=short` | 54 passed, 215.37 seconds, from `output/playwright/wheel-check` with `SAMSARIX_TEST_INSTALLED=1`; fixture verifies site-packages import |
+| Final wheel installed into `output/playwright/recovery-runtime`; import outside checkout, `python -m samsarix_workspace --version`, `python -m pip check` | Correct installed path, 0.3.0, no broken requirements |
+| `py -3.11 -m pip_audit --path output/playwright/recovery-runtime/Lib/site-packages --skip-editable` | No known dependency vulnerabilities; unpublished Samsarix package excluded by advisory-index availability, not ignored findings |
+| [CI 33400063011](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33400063011) at `9e1cae2` | All seven jobs passed; Windows/Linux Python 3.11/3.13 and installed-wheel Chromium/Firefox jobs |
+
+Final CI counts: 117 Python tests passed with one platform-specific skip on each matrix member; Linux branch coverage 91.15%, Windows 91.49%. Each of the three browser jobs passed 27 scenarios (81 total CI executions).
+
+Final local artifacts at `output/playwright/recovery-reviewed-dist` (the subsequent evidence-only documentation commit does not change packaged files):
+
+- Wheel SHA-256: `08a606e99ada9c0b604156a63488ff5b62cdcecacbcb85125f658edf0457ab6c`
+- sdist SHA-256: `c8509bf41b2cb583571c17c218a74d9420431a8784b29f05e68fc39a7fb7b484`
+
+Codex Security diff scan `f940220f-1a52-4cf9-aa54-78de76eec6b5` completed with no reportable findings for immutable `ab04742..f54d4cf`: all 14 generated source/config/browser-test review items plus the remaining 11 changed test/documentation files were accounted for. An independent architecture review supplied the source-cited trust model. This is scoped review evidence, not proof of universal security. Post-scan folder/empty-selection tests, the walker reliability fix, and final documentation were manually reviewed separately; the scan does not claim to cover later commits. The access/TAC connector was unavailable, but canonical local report finalization succeeded. No persistent security configuration was changed.
+
+Logical commits: `f54d4cf` recovery implementation; `a930fee` packaged folder regression and release evidence; `9e1cae2` traversal reliability and empty-selection regression. Changed implementation surfaces are `trash.py`, `errors.py`, `workspace.py`, `api.py`, `cli.py`, `shell.py`, package/version metadata, and all three static browser files. Supporting changes cover the five Python test modules, browser fixture/document/recovery tests, README, API/onboarding docs, changelog, roadmap, and this record. The PR retains the exact final-head and post-merge CI evidence without implying that a source merge publishes a release.
+
+Disposition: alpha release candidate for a single trusted local user, not a hosted service or externally validated offering. The permanent-only deletion P1 is closed; saved-version checkpoints remain the next local P1. WebKit/physical-device coverage is P2. No known locally actionable P0 remains in the reviewed core journey. Public package ownership/trusted publishing, provenance/signing decisions, legal review for commercial terms, and consented external pilot participation remain owner-controlled gates. No package publication, production deployment, paid service, or outreach was performed.
+
 ## Next best work
 
 The next release should favor reliability over breadth:
 
-1. Add recoverable trash and bounded version checkpoints before expanding destructive operations.
+1. Add bounded saved-version checkpoints with explicit retention and restore semantics; Trash already covers deletion, not overwriting an existing file.
 2. Extend browser coverage to WebKit, preserving the existing lifecycle regression cases.
 3. Run a small external pilot against the exact wheel and capture consented, privacy-preserving task success/support evidence.
 4. If hosted multi-user use becomes a real requirement, design identity, authorization, per-tenant roots, audit logging, CSRF/origin controls, and deployment isolation as a separate security phase—not as a flag on the local app.

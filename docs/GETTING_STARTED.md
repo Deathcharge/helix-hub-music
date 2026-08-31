@@ -6,7 +6,7 @@ Keep the application checkout and your editable workspace separate. For example:
 
 ```text
 projects/
-├── helix-web-os/       # application checkout (legacy repository name)
+├── samsarix-workspace/ # application checkout
 └── my-workspace/       # files shown in Samsarix Workspace
 ```
 
@@ -18,10 +18,11 @@ Python 3.11 or newer is required.
 
 ```bash
 python -m venv .venv
+python -m pip install --upgrade pip setuptools
 python -m pip install -e .
 ```
 
-Activate `.venv` before the install command if your system does not use the environment's Python automatically. For contributor tools, install `-e ".[dev]"` instead.
+Activate `.venv` before either install command if your system does not use the environment's Python automatically. Old Python installers may seed outdated packaging tools; update them inside the virtual environment, not the system Python. For contributor tools, install `-e ".[dev]"` instead.
 
 ## 3. Initialize and run
 
@@ -82,9 +83,34 @@ The default host is `127.0.0.1`; the default port is `8765`. Use `--log-level wa
 - Saves write a temporary sibling file, flush it, and atomically replace the target.
 - Unsaved editor text exists only in the browser tab. Copy it elsewhere before reloading after a server outage.
 - Requests time out after 15 seconds. A timed-out save may already have reached disk; retry normally so the ETag conflict guard checks the result. There is no automatic retry of writes.
-- Deletes are permanent. Folder deletion requires an explicit recursive confirmation in the UI or `rm -r` in the virtual terminal.
+- Normal deletion moves disk content to persistent local Trash. Folder deletion requires recursive confirmation in the UI or `rm -r` in the virtual terminal. Links/special entries cannot be archived; their explicit permanent removal has no recovery.
 - The workspace root cannot be renamed or deleted through the API.
 - Back up important folders with your normal backup or version-control workflow.
+
+## Recover a deleted file
+
+1. Select a file and choose **Delete → Move to Trash**. Cancel leaves both the editor and file untouched. Unsaved edits are discarded only after successful deletion; Trash retains the disk version.
+2. Open **Trash** in the top toolbar. Items remain available after a page reload or server restart using the same root.
+3. Choose **Restore**, check the prefilled original path, and submit. If it is occupied or its parent is missing, the dialog explains why; choose an unused path under an existing parent. Restoring another file keeps the current editor and its unsaved draft.
+4. To discard an archived item permanently, choose **Delete permanently** and confirm. This cannot be undone through the app and is not secure erasure.
+
+The same virtual-terminal journey uses the ID returned by `rm` or listed by `trash`:
+
+```text
+rm notes/idea.md
+trash
+restore <id> notes/recovered.md
+```
+
+Replace `<id>` with the actual 32-character ID, without angle brackets. `restore <id>` uses the original path. `purge <id> --confirm` permanently removes an archived item; `rm --permanent [-r] <path>` bypasses Trash explicitly. These are virtual commands, not shell commands.
+
+Trash content is limited to 50 MiB, 100 deletion records, and 2,000 contained files/folders in addition to the active workspace limits. It never auto-expires or silently evicts an older deletion. If full, new deletion fails and the live file remains; restore or explicitly purge an item to make room. Embedding applications can set `AppSettings.max_trash_bytes`, `max_trash_items` (1–1,000), and `max_trash_entries` (1–10,000); the CLI uses the defaults.
+
+The reserved `.samsarix-trash` folder is private to the app's file API, not encrypted against the OS user. It contains original filenames and content. Do not edit it while the server runs, place it in a publicly shared folder, or point multiple server processes at the same workspace. Include it in backups when deleted content matters; it is not your OS Recycle Bin and cannot recover earlier permanent deletions or saved edit versions. Basic content, file modes, and modified times are copied on restore where supported; ownership, ACLs, alternate data streams, and every extended filesystem attribute are not promised.
+
+Deletion uses a same-filesystem rename after flushing the metadata file; restore copies exclusively before removing the archive. Ordinary operation failures and restarts are handled, but arbitrary power loss, disk corruption, hostile local processes, and network-filesystem durability are not guaranteed. Restoring requires free space for both copies during the operation.
+
+If a request times out, **refresh active files and Trash before retrying**. If restore fails, Trash remains but a partial destination may exist: inspect it or choose another unused path. If restoration succeeds with a cleanup warning, verify the restored copy before purging the retained record. An `incomplete` or unreadable item cannot be restored through the UI; inspect a backup/offline copy if needed before permanently deleting it. An unrecognized `.samsarix-trash` folder causes startup to fail without changing it; stop other processes, back it up, and rename it outside the app before retrying.
 
 ## Troubleshooting
 

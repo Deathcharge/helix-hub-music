@@ -26,7 +26,7 @@ def test_init_rejects_an_existing_file(tmp_path: Path, capsys: pytest.CaptureFix
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit, match="0"):
         cli.main(["--version"])
-    assert "samsarix-workspace 0.2.1" in capsys.readouterr().out
+    assert "samsarix-workspace 0.3.0" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "example.test", "::"])
@@ -119,3 +119,15 @@ def test_serve_remote_with_token_and_open_browser(
     assert opened == ["http://127.0.0.1:8765"]
     assert "workspace.example" in served_apps[0].state.settings.allowed_hosts
     assert "Bearer-token protection: enabled" in capsys.readouterr().out
+
+
+def test_serve_refuses_unowned_recovery_folder(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    private = tmp_path / ".samsarix-trash"
+    private.mkdir()
+    (private / "mine").write_text("keep")
+    with pytest.raises(SystemExit, match="2"):
+        cli.main(["serve", str(tmp_path)])
+    assert "Inspect or rename it outside the app" in capsys.readouterr().err
+    assert (private / "mine").read_text() == "keep"

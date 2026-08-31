@@ -14,20 +14,31 @@ import shutil
 import stat
 import tempfile
 import threading
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Concatenate, ParamSpec, TypeVar
+
+from samsarix_workspace.errors import WorkspaceError as WorkspaceError
+from samsarix_workspace.trash import TrashStore, linked_metadata, reserved_name
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
-class WorkspaceError(Exception):
-    """A stable, user-facing workspace failure."""
+def _locked(
+    method: Callable[Concatenate[Workspace, P], T],
+) -> Callable[Concatenate[Workspace, P], T]:
+    """Keep reads and mutations consistent within one application instance."""
 
-    def __init__(self, code: str, message: str, status_code: int = 400) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
+    @wraps(method)
+    def invoke(self: Workspace, /, *args: P.args, **kwargs: P.kwargs) -> T:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return invoke
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +112,9 @@ class Workspace:
         max_file_bytes: int = 1_048_576,
         max_total_bytes: int = 52_428_800,
         max_entries: int = 2_000,
+        max_trash_bytes: int = 52_428_800,
+        max_trash_items: int = 100,
+        max_trash_entries: int = 2_000,
     ) -> None:
         requested_root = Path(root).expanduser()
         requested_root.mkdir(parents=True, exist_ok=True)
@@ -112,6 +126,12 @@ class Workspace:
         self.max_entries = max_entries
         self.workspace_id = secrets.token_hex(8)
         self._lock = threading.RLock()
+        self._trash = TrashStore(
+            self,
+            max_bytes=max_trash_bytes,
+            max_items=max_trash_items,
+            max_entries=max_trash_entries,
+        )
 
     @staticmethod
     def _public_path(path: str) -> PurePosixPath:
@@ -122,6 +142,10 @@ class Workspace:
         public = PurePosixPath(path)
         if public.is_absolute() or public.drive:
             raise WorkspaceError("invalid_path", "Absolute paths are not allowed.")
+        if any(reserved_name(part) for part in public.parts):
+            raise WorkspaceError(
+                "reserved_path", "Samsarix recovery storage is private; use Trash actions."
+            )
         return public
 
     def normalize(self, path: str, *, allow_root: bool = True) -> str:
@@ -151,7 +175,7 @@ class Workspace:
         for part in parts:
             current = current / part
             try:
-                if current.is_symlink():
+                if os.path.lexists(current) and linked_metadata(current.lstat()):
                     raise WorkspaceError(
                         "symlink_not_allowed", "Symbolic links are not allowed in workspaces."
                     )
@@ -182,9 +206,13 @@ class Workspace:
         self._reject_symlink_parts(candidate, include_leaf=include_leaf)
         try:
             resolved = candidate.resolve(strict=False)
-            resolved.relative_to(self.root)
+            relative = resolved.relative_to(self.root)
         except (OSError, ValueError) as exc:
             raise WorkspaceError("path_escape", "Path escapes the workspace root.") from exc
+        if any(reserved_name(part) for part in relative.parts):
+            raise WorkspaceError(
+                "reserved_path", "Samsarix recovery storage is private; use Trash actions."
+            )
         if must_exist and not candidate.exists():
             raise WorkspaceError("not_found", "The requested entry does not exist.", 404)
         return candidate
@@ -206,7 +234,7 @@ class Workspace:
             raise WorkspaceError("path_unavailable", "The requested path is unavailable.") from exc
         modified_at = self._timestamp(metadata)
         mode = metadata.st_mode
-        if stat.S_ISLNK(mode):
+        if linked_metadata(metadata):
             return Entry(relative, path.name, "blocked_symlink", 0, modified_at)
         if stat.S_ISDIR(mode):
             return Entry(relative, path.name, "directory", 0, modified_at)
@@ -216,6 +244,27 @@ class Workspace:
             return Entry(relative, path.name, "blocked_hardlink", metadata.st_size, modified_at)
         return Entry(relative, path.name, "file", metadata.st_size, modified_at)
 
+    @staticmethod
+    def _walk_directories(current: Path, names: list[str]) -> tuple[list[str], list[str]]:
+        """Classify walk results without following links or failing on removed folders."""
+
+        ordinary: list[str] = []
+        linked: list[str] = []
+        for name in names:
+            if reserved_name(name):
+                continue
+            try:
+                metadata = (current / name).lstat()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise WorkspaceError(
+                    "path_unavailable", "A workspace folder is unavailable."
+                ) from exc
+            (linked if linked_metadata(metadata) else ordinary).append(name)
+        return sorted(ordinary), sorted(linked)
+
+    @_locked
     def list_entries(self, path: str = "", *, recursive: bool = False) -> list[Entry]:
         """List a folder with deterministic ordering and an entry ceiling."""
 
@@ -227,11 +276,10 @@ class Workspace:
         if recursive:
             for current_root, directories, files in os.walk(directory, followlinks=False):
                 current = Path(current_root)
-                linked_directories = [name for name in directories if (current / name).is_symlink()]
-                directories[:] = sorted(
-                    name for name in directories if not (current / name).is_symlink()
-                )
-                names = [*directories, *sorted(linked_directories), *sorted(files)]
+                ordinary, linked_directories = self._walk_directories(current, directories)
+                directories[:] = ordinary
+                files = [name for name in files if not reserved_name(name)]
+                names = [*directories, *linked_directories, *sorted(files)]
                 for name in names:
                     entries.append(self._entry(current / name))
                     if len(entries) > self.max_entries:
@@ -242,6 +290,8 @@ class Workspace:
                         )
         else:
             for item in sorted(directory.iterdir(), key=lambda item: item.name):
+                if reserved_name(item.name):
+                    continue
                 entries.append(self._entry(item))
                 if len(entries) > self.max_entries:
                     raise WorkspaceError(
@@ -251,6 +301,7 @@ class Workspace:
                     )
         return sorted(entries, key=lambda entry: (entry.path.casefold(), entry.path))
 
+    @_locked
     def assert_directory(self, path: str = "") -> None:
         """Validate that a public path resolves to an existing workspace directory."""
 
@@ -301,6 +352,7 @@ class Workspace:
             raise WorkspaceError("read_failed", "The file could not be read.", 500) from exc
         return candidate, content_bytes
 
+    @_locked
     def search_text(
         self,
         query: str,
@@ -398,6 +450,7 @@ class Workspace:
             truncated,
         )
 
+    @_locked
     def read_file(self, path: str) -> FileDocument:
         """Read one bounded UTF-8 text file."""
 
@@ -428,14 +481,17 @@ class Workspace:
             etag=self._etag_bytes(content_bytes),
         )
 
+    @_locked
     def usage_bytes(self) -> int:
         """Return total regular-file bytes without following symlinks."""
 
         total = 0
         for current_root, directories, files in os.walk(self.root, followlinks=False):
             current = Path(current_root)
-            directories[:] = [name for name in directories if not (current / name).is_symlink()]
+            directories[:], _ = self._walk_directories(current, directories)
             for name in files:
+                if reserved_name(name):
+                    continue
                 item = current / name
                 try:
                     metadata = item.stat(follow_symlinks=False)
@@ -445,6 +501,7 @@ class Workspace:
                     continue
         return total
 
+    @_locked
     def write_file(
         self,
         path: str,
@@ -529,6 +586,7 @@ class Workspace:
                 raise WorkspaceError("write_failed", "The file could not be saved.", 500) from exc
         return self.read_file(path)
 
+    @_locked
     def make_directory(self, path: str) -> Entry:
         """Create one directory; its parent must already exist."""
 
@@ -546,6 +604,7 @@ class Workspace:
             raise WorkspaceError("create_failed", "The folder could not be created.", 500) from exc
         return self._entry(candidate)
 
+    @_locked
     def move(self, source: str, destination: str) -> Entry:
         """Move or rename one entry without overwriting an existing destination."""
 
@@ -571,22 +630,49 @@ class Workspace:
             raise WorkspaceError("move_failed", "The entry could not be moved.", 500) from exc
         return self._entry(destination_path)
 
-    def delete(self, path: str, *, recursive: bool = False) -> None:
-        """Delete an entry; deleting the workspace root is structurally impossible."""
+    @_locked
+    def delete(
+        self,
+        path: str,
+        *,
+        recursive: bool = False,
+        permanent: bool = False,
+        expected_etag: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Move to Trash by default; permanent deletion must be explicitly requested."""
+
+        if not permanent:
+            return self._trash.take(path, recursive=recursive, expected_etag=expected_etag)
 
         candidate = self._lexical(path, allow_root=False)
         self._reject_symlink_parts(candidate, include_leaf=False)
         if candidate.is_symlink():
             candidate.unlink()
-            return
+            return None
+        if os.path.lexists(candidate) and linked_metadata(candidate.lstat()):
+            tag = getattr(candidate.lstat(), "st_reparse_tag", None)
+            if (
+                tag == getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003)
+                and candidate.is_dir()
+            ):
+                candidate.rmdir()
+            else:
+                raise WorkspaceError(
+                    "reparse_not_allowed", "Remove this unsupported reparse entry outside the app."
+                )
+            return None
         if (
             candidate.exists()
             and candidate.is_file()
             and candidate.stat(follow_symlinks=False).st_nlink > 1
         ):
             candidate.unlink()
-            return
+            return None
         candidate = self._safe_path(path, allow_root=False, must_exist=True)
+        if expected_etag is not None and self.read_file(path).etag != expected_etag:
+            raise WorkspaceError(
+                "edit_conflict", "The file changed; reload before deleting it.", 409
+            )
         try:
             if candidate.is_dir():
                 if recursive:
@@ -606,7 +692,24 @@ class Workspace:
                 else "The entry could not be deleted."
             )
             raise WorkspaceError(code, message, status) from exc
+        return None
 
+    @_locked
+    def trash_report(self) -> dict[str, Any]:
+        """List bounded recovery metadata, never private storage paths or content."""
+        return self._trash.report()
+
+    @_locked
+    def restore(self, trash_id: str, destination: str | None = None) -> dict[str, Any]:
+        """Restore a recovery item without replacing an existing destination."""
+        return self._trash.restore(trash_id, destination)
+
+    @_locked
+    def purge(self, trash_id: str) -> None:
+        """Permanently remove one explicitly selected recovery item."""
+        self._trash.purge(trash_id)
+
+    @_locked
     def summary(self) -> dict[str, Any]:
         """Return safe workspace metadata without exposing the host root path."""
 

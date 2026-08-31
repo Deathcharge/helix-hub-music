@@ -26,7 +26,12 @@ class RunningWorkspace:
 
 
 @pytest.fixture
-def live_workspace(tmp_path: Path) -> Iterator[RunningWorkspace]:
+def trash_bytes(request: pytest.FixtureRequest) -> int:
+    return int(getattr(request, "param", 52_428_800))
+
+
+@pytest.fixture
+def live_workspace(tmp_path: Path, trash_bytes: int) -> Iterator[RunningWorkspace]:
     if os.environ.get("SAMSARIX_TEST_INSTALLED") == "1":
         module = Path(samsarix_workspace.__file__).resolve()
         assert module.is_relative_to(Path(sysconfig.get_path("purelib")).resolve()), (
@@ -37,7 +42,7 @@ def live_workspace(tmp_path: Path) -> Iterator[RunningWorkspace]:
     (root / "alpha.txt").write_text("alpha on disk\n", encoding="utf-8")
     (root / "beta.txt").write_text("beta on disk\n", encoding="utf-8")
     (root / "binary.bin").write_bytes(b"\xff\xfe")
-    app = create_app(AppSettings(workspace_root=root))
+    app = create_app(AppSettings(workspace_root=root, max_trash_bytes=trash_bytes))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         server = uvicorn.Server(uvicorn.Config(app, log_level="error", lifespan="off"))

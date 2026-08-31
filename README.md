@@ -4,7 +4,7 @@ Samsarix Workspace is a small, local-first browser workspace for persistent text
 
 This repository was previously named `helix-web-os`; that history remains in Git. The product and company identity are now **Samsarix Workspace** by **Samsarix LLC**.
 
-> **Maturity:** `0.2.1` alpha release candidate. The primary local review workflow is implemented and tested. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal.
+> **Maturity:** `0.3.0` alpha release candidate. The primary local review and deleted-file recovery workflows are implemented and tested. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal.
 
 ## What works
 
@@ -12,8 +12,9 @@ This repository was previously named `helix-web-os`; that history remains in Git
 - UTF-8 editor with bounded workspace content search, multi-file import, and current-document download
 - Safe basic Markdown preview that renders through DOM text nodes and never executes raw document HTML
 - Tab-scoped draft recovery plus an explicit reload-or-overwrite flow for disk conflicts
+- Persistent local Trash with collision-safe restore, explicit permanent deletion, and no automatic eviction
 - Atomic writes, per-file and total-storage quotas, and bounded file listings
-- A virtual terminal for `ls`, `cat`, `head`, `tail`, `wc`, `find`, `grep`, `mkdir`, `touch`, `mv`, and `rm`
+- A virtual terminal for file commands plus `trash`, `restore`, and explicitly confirmed `purge`
 - FastAPI JSON API with a stable error envelope and OpenAPI document
 - Local-only binding by default; bearer-token requirement for non-loopback binding
 - Responsive, keyboard-accessible browser UI with no frontend build step or third-party CDN
@@ -57,6 +58,8 @@ Use **Import** to bring one or more UTF-8 text files into the root (or a selecte
 
 You can keep typing during a save: only the submitted text is acknowledged as saved, and newer edits remain unsaved. Opening another file waits for a save to finish. Failed opens preserve your current document, and conflict choices never silently authorize replacing external changes.
 
+**Delete** now moves regular files and folders to local **Trash**. Open Trash to restore to the original or another unused path, even after restarting the server. Restore never overwrites an existing destination. Trash retains the disk version, not unsaved editor changes; permanent deletion requires a separate confirmation. [Recovery guidance](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/GETTING_STARTED.md#recover-a-deleted-file) explains limits and failure recovery.
+
 You can also run the module form:
 
 ```bash
@@ -88,12 +91,16 @@ Defaults are conservative:
 | Individual UTF-8 file | 1 MiB |
 | Workspace regular-file storage | 50 MiB |
 | Listed entries | 2,000 |
+| Trash content (additional to active storage) | 50 MiB |
+| Trash items / contained entries | 100 / 2,000 |
 | HTTP request body | 1.25 MiB |
 | Text scanned per search | 10 MiB |
 | Active virtual-terminal sessions | 128 |
 | Session idle lifetime | 6 hours |
 
 Symbolic links, hard-linked files, and special files are not followed or opened. File paths use forward slashes and cannot be absolute or contain `.` or `..` segments. The app does not upload files to Samsarix or any third party.
+
+Trash lives in the reserved `.samsarix-trash` folder, hidden from active browsing, search, and ordinary file APIs. It is not encrypted, an OS Recycle Bin, or a backup. Keep one server process per root; same-permission local processes and arbitrary power loss are outside its recovery guarantee. Full Trash refuses new deletion rather than silently removing older items.
 
 Current non-goals:
 
@@ -102,7 +109,7 @@ Current non-goals:
 - Code execution, kernels, language servers, Git UI, or package installation
 - Cloud sync, collaboration, accounts, organizations, billing, or telemetry
 - AI chat or model-provider integration
-- Background autosave, trash, or version history
+- Background autosave or version history for saved edits
 
 Those boundaries are part of the security model, not missing claims hidden behind marketing language.
 
@@ -118,6 +125,9 @@ The OpenAPI document is available at `/openapi.json`. The versioned endpoints ar
 - `POST /api/v1/folders`
 - `POST /api/v1/move`
 - `DELETE /api/v1/entry`
+- `GET /api/v1/trash`
+- `POST /api/v1/trash/{id}/restore`
+- `DELETE /api/v1/trash/{id}?confirm=true`
 - `POST /api/v1/terminal/execute`
 
 See the [API reference](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/API_REFERENCE.md) for payloads and errors.

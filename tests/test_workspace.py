@@ -183,7 +183,7 @@ def test_symlink_escape_is_blocked_for_reads_writes_and_moves(
         workspace.write_file("link/created.txt", "escape")
     with raises_code("symlink_not_allowed"):
         workspace.move("link", "moved")
-    workspace.delete("link")
+    workspace.delete("link", permanent=True)
     assert not link.exists()
     assert (outside / "secret.txt").read_text(encoding="utf-8") == "outside-secret"
 
@@ -194,7 +194,7 @@ def test_broken_symlink_can_be_safely_removed(workspace: Workspace) -> None:
         link.symlink_to(workspace.root.parent / "absent")
     except (OSError, NotImplementedError):
         pytest.skip("symlinks are not available for this test user")
-    workspace.delete("broken")
+    workspace.delete("broken", permanent=True)
     assert not link.is_symlink()
 
 
@@ -217,7 +217,7 @@ def test_hardlink_escape_is_blocked_but_link_can_be_removed(
         workspace.write_file("linked.txt", "changed")
     with raises_code("hardlink_not_allowed"):
         workspace.move("linked.txt", "moved.txt")
-    workspace.delete("linked.txt")
+    workspace.delete("linked.txt", permanent=True)
     assert outside.read_text(encoding="utf-8") == "outside-secret"
     assert not linked.exists()
 
@@ -304,3 +304,34 @@ def test_special_file_is_identified_without_reading_on_posix(
     os.mkfifo(fifo)
     entry = workspace.list_entries()[0]
     assert entry.kind == "blocked_special"
+
+
+@pytest.mark.parametrize("operation", ["list", "usage"])
+@pytest.mark.parametrize("missing", [True, False])
+def test_walk_handles_disappearing_and_unavailable_directories(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, operation: str, missing: bool
+) -> None:
+    workspace.make_directory("changing")
+    workspace.write_file("changing/hidden.txt", "not counted")
+    workspace.write_file("stable.txt", "ok")
+    changing = workspace.root / "changing"
+    original_lstat = Path.lstat
+
+    def interrupted_lstat(path: Path, *args: object, **kwargs: object) -> os.stat_result:
+        if path == changing:
+            if missing:
+                raise FileNotFoundError("removed after os.walk enumerated it")
+            raise PermissionError("folder permissions changed")
+        return original_lstat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", interrupted_lstat)
+    if not missing:
+        with raises_code("path_unavailable"):
+            if operation == "list":
+                workspace.list_entries(recursive=True)
+            else:
+                workspace.usage_bytes()
+    elif operation == "list":
+        assert [entry.path for entry in workspace.list_entries(recursive=True)] == ["stable.txt"]
+    else:
+        assert workspace.usage_bytes() == 2

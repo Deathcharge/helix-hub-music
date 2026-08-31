@@ -68,7 +68,17 @@ def test_api_primary_journey(tmp_path: Path) -> None:
         )
         assert second.json()["cwd"] == "/notes"
         deleted = client.delete("/api/v1/entry", params={"path": "notes", "recursive": True})
-        assert deleted.json() == {"deleted": True}
+        assert deleted.json()["deleted"] is True
+        assert deleted.json()["permanent"] is False
+        item = deleted.json()["trash_item"]
+        assert item["path"] == "notes"
+        assert client.get("/api/v1/trash").json()["trash"]["items"][0]["id"] == item["id"]
+        restored = client.post(f"/api/v1/trash/{item['id']}/restore", json={})
+        assert restored.json()["entry"]["path"] == "notes"
+        assert (
+            client.get("/api/v1/file", params={"path": "notes/final.md"}).json()["file"]["content"]
+            == "hello again"
+        )
 
 
 def test_token_authentication_uses_standard_error_contract(tmp_path: Path) -> None:
@@ -198,3 +208,58 @@ def test_lru_evicts_old_terminal_session(tmp_path: Path) -> None:
             json={"command": "pwd", "session_id": first["session_id"]},
         )
         assert response.status_code == 404
+
+
+def test_trash_routes_require_auth_and_purge_confirmation(tmp_path: Path) -> None:
+    headers = {"Authorization": "Bearer correct horse battery staple"}
+    with client_for(tmp_path, token="correct horse battery staple") as client:
+        client.put("/api/v1/file", json={"path": "note", "content": "keep"}, headers=headers)
+        item = client.delete("/api/v1/entry", params={"path": "note"}, headers=headers).json()[
+            "trash_item"
+        ]
+        for method, path, values in [
+            ("GET", "/api/v1/trash", {}),
+            ("POST", f"/api/v1/trash/{item['id']}/restore", {"json": {}}),
+            ("DELETE", f"/api/v1/trash/{item['id']}?confirm=true", {}),
+        ]:
+            assert client.request(method, path, **values).status_code == 401
+            assert (
+                client.request(
+                    method, path, headers={"Authorization": "Bearer wrong"}, **values
+                ).status_code
+                == 401
+            )
+        refused = client.delete(f"/api/v1/trash/{item['id']}", headers=headers)
+        assert refused.status_code == 400
+        assert refused.json()["error"]["code"] == "confirmation_required"
+        assert client.get("/api/v1/trash", headers=headers).json()["trash"]["items"]
+        purged = client.delete(f"/api/v1/trash/{item['id']}?confirm=true", headers=headers)
+        assert purged.json() == {"purged": True}
+        assert client.get("/api/v1/trash", headers=headers).json()["trash"]["items"] == []
+
+
+def test_recovery_api_validation_conflicts_and_storage_limits(tmp_path: Path) -> None:
+    with client_for(tmp_path, max_trash_bytes=4) as client:
+        created = client.put("/api/v1/file", json={"path": "note", "content": "keep"})
+        initial = created.json()["file"]["etag"]
+        client.put("/api/v1/file", json={"path": "note", "content": "changed"})
+        stale = client.delete("/api/v1/entry", params={"path": "note", "expected_etag": initial})
+        assert stale.json()["error"]["code"] == "edit_conflict"
+        full = client.delete("/api/v1/entry", params={"path": "note"})
+        assert full.status_code == 413
+        assert full.json()["error"]["code"] == "trash_full"
+        assert client.get("/api/v1/file", params={"path": "note"}).status_code == 200
+        client.put("/api/v1/file", json={"path": "note", "content": "keep"})
+        item = client.delete("/api/v1/entry", params={"path": "note"}).json()["trash_item"]
+        restore = f"/api/v1/trash/{item['id']}/restore"
+        for payload in [{"destination": ""}, {"destination": "x" * 513}, {"overwrite": True}]:
+            assert client.post(restore, json=payload).status_code == 422
+        private = client.post(restore, json={"destination": ".samsarix-trash/payload"})
+        assert private.json()["error"]["code"] == "reserved_path"
+        client.put("/api/v1/file", json={"path": "note", "content": "new"})
+        assert client.post(restore, json={}).json()["error"]["code"] == "already_exists"
+        result = client.post(restore, json={"destination": "recovered"})
+        assert result.json()["entry"]["path"] == "recovered"
+        assert not result.json()["trash_retained"]
+        permanent = client.delete("/api/v1/entry", params={"path": "note", "permanent": True})
+        assert permanent.json() == {"deleted": True, "permanent": True, "trash_item": None}
