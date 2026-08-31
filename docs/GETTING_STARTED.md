@@ -10,7 +10,7 @@ projects/
 └── my-workspace/       # files shown in Samsarix Workspace
 ```
 
-The application only reads and writes below the workspace folder you pass to `serve`.
+Document operations read and write below the workspace folder you pass to `serve`. The application also reads its installed UI assets and dependencies. This is document-path containment, not an operating-system filesystem sandbox; maintainer build tools have separate, explicitly documented authority.
 
 ## 2. Install from this checkout
 
@@ -58,6 +58,8 @@ idea.md
 | `SAMSARIX_WORKSPACE_ROOT` | Default folder for `serve` when no path argument is supplied |
 | `SAMSARIX_WORKSPACE_TOKEN` | Bearer token required by the API and UI; mandatory for non-loopback binds |
 | `SAMSARIX_WORKSPACE_ALLOWED_HOSTS` | Comma-separated accepted Host values when the app factory is configured from the environment |
+
+The non-loopback bind/token-length check belongs to the CLI. An embedding ASGI server using `create_app()` chooses its own socket and must enforce equivalent listener/token/TLS/network controls; the factory still applies configured Host filtering and optional API bearer authentication.
 
 ## Review a set of documents
 

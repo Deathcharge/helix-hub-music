@@ -37,6 +37,8 @@ output/releases/tools/bin/python tools/release_evidence.py verify output/release
 
 Keep artifact generation separate from source changes: commit first, then build. The script rejects staged, unstaged, and untracked non-ignored changes. Build mode deliberately uses public PyPI and ignores pip index/config environment overrides; private-index workflows are not supported by this command. Each subprocess has a five-minute timeout, no shell interpolation, and no inherited stdin. Output files remain local until an explicitly configured CI upload or owner-authorized distribution.
 
+Tool bootstrap and the separate pilot-install commands are ordinary pip invocations: they honor the evaluator's pip configuration and require a trusted index (public PyPI by default). The builder records its actual tool environment but does not enforce that the caller created the documented venv or installed the pinned requirements. Follow that setup before building; a successful checksum check does not certify the build environment.
+
 ## What the command verifies
 
 1. Wheel and sdist build from the pinned clean Git snapshot; Twine checks distribution metadata.

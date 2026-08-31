@@ -69,7 +69,7 @@ python -m samsarix_workspace serve ../my-workspace
 
 ## Safe network use
 
-The default listener is `127.0.0.1` and does not require a token. A non-loopback listener is refused unless `SAMSARIX_WORKSPACE_TOKEN` contains at least 20 characters:
+The CLI's default listener is `127.0.0.1` and does not require a token. The CLI refuses a non-loopback listener unless `SAMSARIX_WORKSPACE_TOKEN` contains at least 20 characters:
 
 ```powershell
 $env:SAMSARIX_WORKSPACE_TOKEN = "replace-with-a-long-random-secret"
@@ -82,6 +82,8 @@ samsarix-workspace serve ../my-workspace --host 0.0.0.0 --allowed-host workspace
 ```
 
 Replace `workspace.example` with the hostname clients actually use; repeat `--allowed-host` for aliases. For any untrusted network, put the service behind a TLS reverse proxy and network access controls. The built-in token is a single-workspace gate, not multi-user identity or tenant isolation. Tokens are ASCII secrets read from the environment, never from a CLI argument, and the browser retains a submitted token only in tab-scoped session storage.
+
+If you embed `create_app()` in another ASGI server, that server owns the socket binding. The factory does not enforce the CLI's bind-address/token-length rule; configure equivalent listener, token, Host, TLS, and network controls yourself.
 
 ## Deliberate limits
 

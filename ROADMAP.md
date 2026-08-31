@@ -78,6 +78,7 @@ Current hardening backlog:
 - Platform-specific hash-locked dependency reinstall and schema-validated CycloneDX inventory with repeat-generation checks
 - Unsigned source/tool/artifact manifest and standalone read-only checksum verifier; no authentication or SLSA claim
 - Packaged consent-conscious pilot instructions; Linux/Windows CI upload only, no publication or signing
+- [PR #15](https://github.com/Deathcharge/samsarix-workspace/pull/15) records candidate acceptance: 198 Python tests plus one Windows-only FIFO skip, 99 local installed-browser checks, scoped security review, and eight-job cross-platform CI
 
 Next highest-value work is a small external pilot using the exact artifact, followed by macOS/physical Apple-device validation and owner-controlled publication/signing preparation. Playwright WebKit coverage is not branded Safari or physical-device acceptance. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
 
