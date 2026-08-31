@@ -1,2 +1,4 @@
 recursive-include tests *.py
 recursive-include e2e *.py
+recursive-include tools *.py *.txt
+include docs/RELEASING.md docs/EVALUATING.md

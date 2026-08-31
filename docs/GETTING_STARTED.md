@@ -31,7 +31,9 @@ samsarix-workspace init ../my-workspace
 samsarix-workspace serve ../my-workspace --open
 ```
 
-`init` creates `WELCOME.md` only when it does not already exist. `serve` creates the chosen directory if necessary and starts at `http://127.0.0.1:8765`.
+`init` creates `WELCOME.md` exclusively using the same path/quota guards as regular workspace writes. An existing regular welcome file is preserved, including one created concurrently. Links, a welcome directory, unrecognized private recovery storage, or a failed write return a nonzero exit and an error without overwriting another entry. Fix the reported condition before retrying. `serve` creates the chosen directory if necessary and starts at `http://127.0.0.1:8765`.
+
+For a trusted prebuilt candidate with exact dependency hashes and a standalone integrity check, use the [pilot bundle guide](EVALUATING.md). The [maintainer workflow](RELEASING.md) explains how to build that bundle without publishing it.
 
 Use `Ctrl+S` (or `Cmd+S`) to save the open document. The yellow dot means the editor differs from the saved file. If another process changed the file after it was opened, saving returns a conflict instead of overwriting the newer content.
 

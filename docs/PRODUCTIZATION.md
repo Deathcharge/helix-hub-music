@@ -4,7 +4,7 @@ Date: 2026-08-31
 
 Baseline revision: `64ad942bbf9e7f006a6ac481933587559121f50b`
 
-Product: Samsarix Workspace `0.4.0` candidate
+Product: Samsarix Workspace `0.4.1` candidate
 
 Owner: Samsarix LLC
 
@@ -80,7 +80,7 @@ Deferred deliberately after `0.4.0`:
 - Multi-user identity, authorization, tenant isolation, and audit logs
 - Collaboration, cloud sync, deployment automation, and hosted operations
 - A real shell, code execution, AI provider access, plugins, or extensions
-- PyPI publication, signed artifacts, SBOM/provenance attestations, and automated release publishing
+- PyPI publication, signed artifacts, provenance attestations, and automated release publishing; unsigned local SBOM/build evidence is implemented in the `0.4.1` candidate
 
 ## Architecture
 
@@ -423,6 +423,26 @@ Changed implementation surfaces: new `history.py` and shared `recovery.py`; `wor
 
 Disposition: **alpha release candidate for one trusted local user**, with the saved-overwrite-recovery P1 implemented. It is not a hosted service, backup product, publicly published package, or externally validated competitive offering. No known locally actionable P0 remains in the exercised core journey. History consumes bounded additional local storage and retains unencrypted prior contents and names; normal purge is not secure erasure. No runtime dependency, provider bill, telemetry, public deployment, package publication, or outreach was added. CI now has one additional browser job. AGPL-3.0-only and Samsarix LLC/contact/support metadata are unchanged.
 
+## `0.4.1` first-run reliability and pilot release evidence
+
+Baseline reverified at clean `main` `2bebb9230b03551adb6aa60b5b0196b8c6fc8195`: all eight [post-merge CI jobs](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33409490713) and the dependency graph passed, no open GitHub issues were returned, and local tests passed 148 / one Windows FIFO skip with 92.36% coverage. The preceding goal turn made concrete progress by merging saved-version recovery; it was not a no-progress or blocked turn.
+
+The next user is an evaluator outside the developer checkout. The existing candidate had a usable recovery workflow, but artifact identity, dependency inventory, and installation acceptance were assembled manually. Official [pip installation reporting](https://pip.pypa.io/en/stable/reference/installation-report/), [separate-interpreter management](https://pip.pypa.io/en/stable/topics/python-option/), and [CycloneDX environment inventory](https://cyclonedx-bom-tool.readthedocs.io/en/latest/usage.html) support a small, maintainer-only evidence pipeline. These sources establish tooling capabilities, not user demand. [SLSA provenance](https://slsa.dev/spec/v1.2/provenance) is deliberately not claimed for this unsigned local evidence.
+
+Adversarial first-run checks also reproduced an ordinary initialization race that overwrote a competing `WELCOME.md`, following a dangling welcome symlink, misleading success for a welcome directory, and an active-write flush failure that left a staged file behind. Six new regressions failed before the fix; two of those also establish the tightened initialization contract for flush and private-store validation. These are concrete reliability/path-behavior issues, not claims of remote exploitation by a hostile OS actor.
+
+Implemented decisions:
+
+- `init` now uses `Workspace.write_file(..., create_only=True)`, preserves a concurrent regular file, rejects blocked/nonregular welcome entries and unrecognized recovery stores, and returns a useful nonzero error. It shares normal quotas instead of having a separate unchecked write path.
+- The workspace writer records its temporary filename before write/flush/fsync, so an ordinary failed flush can remove the stage. No arbitrary-power-loss transaction or hostile-local-writer guarantee was added.
+- Maintainer release tooling operates on a clean pinned Git archive, excluding ignored build state and untracked documents. Build tools remain separate from the application and are never exposed through the virtual terminal/API.
+- Two runtime-only venvs verify installation, exact wheel hashes, dependency closure, and a hash-locked reinstall. A real loopback smoke journey checks installed UI/save/History/Trash behavior against disposable files and shuts down afterward.
+- CycloneDX 1.6 output is schema-validated, matched to the actual runtime inventory, and generated twice to check stable bytes in that environment. Raw pip URLs/private paths are not copied into the public evidence record.
+- The bundle includes source/tool/runtime metadata, artifact sizes/hashes, a bounded standalone read-only verifier, and a consent-conscious evaluation guide. It is not a signature, publisher authentication, universal lock, vulnerability assessment, license-compliance proof, or public release.
+- Linux/Windows Python 3.13 CI runs this pipeline using unchanged read-only permissions. Existing unit and browser gates remain. No credentials, hosted service, telemetry, runtime dependency, signing, public publication, or user outreach were added.
+
+Initial verification: all 198 Python tests passed with one Windows FIFO skip and 92.54% application branch coverage; 44 of those exercise release-tool integrity/error contracts. Ruff passes for application/tests/browser/tools, all 26 Python files are formatted, Mypy passes 13 application/tool files, and JavaScript syntax/diff checks pass. The installed-runtime smoke prototype passed against the prior 0.4.0 wheel using only runtime dependencies. Exact 0.4.1 snapshot-build, lock/SBOM, installed-wheel/browser, review, and CI acceptance remain required before merge and will be recorded below.
+
 ## Next best work
 
 The next release should favor reliability over breadth:
@@ -430,5 +450,5 @@ The next release should favor reliability over breadth:
 1. **P1 / owner coordination:** run a small external pilot against the exact wheel and capture consented, privacy-preserving task-success/support evidence; prioritize usability follow-ups from that evidence. No user contact or demand is invented.
 2. **P1 / publication gate:** settle package-index ownership, trusted publishing, provenance/signing, and commercial-license legal review before authorizing a public prerelease. Locally prepared artifacts and source merges are not publication.
 3. **P2:** verify macOS and physical Apple devices, then expand interruption/longer-running usage tests based on real pilot failures. The current Windows/Linux and three-engine checks do not replace those environments.
-4. **P2:** prepare reproducible SBOM/provenance generation without adding release credentials or publishing implicitly. Preserve matching application/workspace backups and the documented rollback boundary.
+4. **P2:** evaluate stronger cross-build reproducibility and owner-authorized signed provenance. The implemented per-runtime SBOM/hash evidence is not a signed attestation. Preserve matching application/workspace backups and the documented rollback boundary.
 5. If hosted multi-user use becomes a real requirement, design identity, authorization, per-tenant roots, audit logging, CSRF/origin controls, and deployment isolation as a separate security phase—not as a flag on the local app.

@@ -17,9 +17,9 @@ Create a focused branch and make the smallest coherent change. Do not commit wor
 ## Required checks
 
 ```bash
-python -m ruff check samsarix_workspace tests e2e
-python -m ruff format --check samsarix_workspace tests e2e
-python -m mypy samsarix_workspace
+python -m ruff check samsarix_workspace tests e2e tools
+python -m ruff format --check samsarix_workspace tests e2e tools
+python -m mypy samsarix_workspace tools
 python -m pytest
 node --check samsarix_workspace/static/app.js
 python -m build
@@ -31,11 +31,13 @@ Run the browser-to-disk regressions for editor changes:
 
 ```bash
 python -m pip install -e ".[dev,browser]"
-python -m playwright install chromium firefox
-python -m pytest e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output output/playwright/local
+python -m playwright install chromium firefox webkit
+python -m pytest e2e -o addopts= --browser chromium --browser firefox --browser webkit --tracing retain-on-failure --screenshot only-on-failure --output output/playwright/local
 ```
 
-On Linux, use `python -m playwright install --with-deps chromium firefox` to install required system libraries too. Browser tests use a fresh loopback port and temporary workspace per test; they never point at your documents. Use `--headed` for interactive diagnosis. Keep the browser tools pinned together and refresh the managed browsers after dependency updates. CI retains failure traces and screenshots for seven days; fixtures must not contain private data or credentials.
+On Linux, use `python -m playwright install --with-deps chromium firefox webkit` to install required system libraries too. Browser tests use a fresh loopback port and temporary workspace per test; they never point at your documents. Use `--headed` for interactive diagnosis. Keep the browser tools pinned together and refresh the managed browsers after dependency updates. CI retains failure traces and screenshots for seven days; fixtures must not contain private data or credentials.
+
+Maintainer release tools are separate from application and browser dependencies. Follow [the release-evidence workflow](docs/RELEASING.md) from a clean committed checkout. It builds from a pinned Git snapshot, not ignored local build output, and never publishes or signs a release.
 
 Security-sensitive changes need regression coverage. Treat path resolution, symlinks, request sizes, token handling, file quotas, atomic writes, delete confirmation, ETags, and virtual-terminal commands as security boundaries. Do not add subprocess execution or a system shell under the “virtual terminal” name.
 

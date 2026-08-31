@@ -4,7 +4,7 @@ Samsarix Workspace is a small, local-first browser workspace for persistent text
 
 This repository was previously named `helix-web-os`; that history remains in Git. The product and company identity are now **Samsarix Workspace** by **Samsarix LLC**.
 
-> **Maturity:** `0.4.0` alpha release candidate. Local document review, deleted-file recovery, and saved-version preview/restore are implemented. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal. See the productization record for exact verification evidence.
+> **Maturity:** `0.4.1` alpha release candidate. Local document review, deleted-file recovery, and saved-version preview/restore are implemented. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal. See the productization record for exact verification evidence.
 
 ## What works
 
@@ -144,9 +144,9 @@ See the [API reference](https://github.com/Deathcharge/samsarix-workspace/blob/m
 
 ```bash
 python -m pip install -e ".[dev]"
-python -m ruff check samsarix_workspace tests e2e
-python -m ruff format --check samsarix_workspace tests e2e
-python -m mypy samsarix_workspace
+python -m ruff check samsarix_workspace tests e2e tools
+python -m ruff format --check samsarix_workspace tests e2e tools
+python -m mypy samsarix_workspace tools
 python -m pytest
 python -m build
 ```
@@ -167,6 +167,8 @@ The separate browser suite does not replace or lower the Python coverage gate. C
 
 - [Productization record](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/PRODUCTIZATION.md) — forensic baseline, product decision, threat model, completed work, and deferred backlog
 - [Getting started](https://github.com/Deathcharge/samsarix-workspace/blob/main/docs/GETTING_STARTED.md) — installation and operating guide
+- [Release evidence](docs/RELEASING.md) — clean-snapshot builds, platform-specific hash locks, CycloneDX inventory, and offline checksum verification; no automatic publication
+- [Pilot evaluation](docs/EVALUATING.md) — install a trusted candidate bundle and evaluate the real recovery journey without submitting private documents
 - [Security policy](https://github.com/Deathcharge/samsarix-workspace/blob/main/SECURITY.md) — supported version, safe deployment, and private reporting
 - [Licensing guide](https://github.com/Deathcharge/samsarix-workspace/blob/main/LICENSING.md) — practical AGPL explanation and credit expectations
 
