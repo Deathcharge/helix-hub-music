@@ -8,7 +8,6 @@ This handles ordinary failures/restarts, not all filesystem or power-loss scenar
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import secrets
@@ -20,25 +19,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from samsarix_workspace.errors import WorkspaceError
+from samsarix_workspace.recovery import MAX_METADATA_BYTES as MAX_METADATA_BYTES
+from samsarix_workspace.recovery import linked_metadata as linked_metadata
+from samsarix_workspace.recovery import plain_directory, read_json, write_json
+from samsarix_workspace.recovery import reserved_name as reserved_name
 
 if TYPE_CHECKING:
     from samsarix_workspace.workspace import Workspace
 
 TRASH_NAME = ".samsarix-trash"
 OWNER = {"format": "samsarix-workspace-trash", "version": 1}
-MAX_METADATA_BYTES = 8192
-
-
-def reserved_name(name: str) -> bool:
-    """Include Windows trailing-dot/space and alternate-stream spellings."""
-    return name.split(":", 1)[0].rstrip(" .").casefold() == TRASH_NAME
-
-
-def linked_metadata(metadata: os.stat_result) -> bool:
-    """Treat Windows junctions/reparse points as links on Python 3.11 too."""
-    return stat.S_ISLNK(metadata.st_mode) or bool(
-        getattr(metadata, "st_file_attributes", 0) & 0x400
-    )
 
 
 @dataclass(frozen=True)
@@ -67,45 +57,9 @@ class TrashStore:
         if os.path.lexists(self.root):
             self._validate_store()
 
-    @staticmethod
-    def _plain_directory(path: Path) -> None:
-        metadata = path.lstat()
-        if linked_metadata(metadata) or not stat.S_ISDIR(metadata.st_mode):
-            raise ValueError("Not a plain directory")
-
-    @staticmethod
-    def _read_json(path: Path) -> dict[str, Any]:
-        metadata = path.lstat()
-        if (
-            linked_metadata(metadata)
-            or not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or metadata.st_size > MAX_METADATA_BYTES
-        ):
-            raise ValueError("Invalid metadata file")
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        with os.fdopen(descriptor, "rb") as document:
-            opened = os.fstat(document.fileno())
-            if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
-                raise ValueError("Invalid opened metadata file")
-            encoded = document.read(MAX_METADATA_BYTES + 1)
-        if len(encoded) > MAX_METADATA_BYTES:
-            raise ValueError("Metadata is too large")
-        value = json.loads(encoded)
-        if not isinstance(value, dict):
-            raise ValueError("Invalid metadata object")
-        return value
-
-    @staticmethod
-    def _write_json(path: Path, value: dict[str, Any]) -> None:
-        encoded = json.dumps(value, ensure_ascii=True, sort_keys=True).encode("utf-8")
-        if len(encoded) > MAX_METADATA_BYTES:
-            raise WorkspaceError("invalid_path", "Recovery metadata exceeds its size limit.")
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "wb") as document:
-            document.write(encoded)
-            document.flush()
-            os.fsync(document.fileno())
+    _plain_directory = staticmethod(plain_directory)
+    _read_json = staticmethod(read_json)
+    _write_json = staticmethod(write_json)
 
     def _validate_store(self) -> None:
         try:

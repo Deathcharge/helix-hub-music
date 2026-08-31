@@ -4,7 +4,7 @@ Date: 2026-08-31
 
 Baseline revision: `64ad942bbf9e7f006a6ac481933587559121f50b`
 
-Product: Samsarix Workspace `0.3.0`
+Product: Samsarix Workspace `0.4.0` candidate
 
 Owner: Samsarix LLC
 
@@ -74,9 +74,9 @@ Removed because they were unsupported fragments:
 - Invented pricing, subscriptions, marketplace, provider routing, real-time collaboration, and production-readiness claims
 - Mock-only tests and broad unpinned requirements files
 
-Deferred deliberately after `0.3.0`:
+Deferred deliberately after `0.4.0`:
 
-- Binary/rich-media preview, background autosave, and saved-edit version history
+- Binary/rich-media preview, background autosave, external-change monitoring, and file-identity/rename tracking
 - Multi-user identity, authorization, tenant isolation, and audit logs
 - Collaboration, cloud sync, deployment automation, and hosted operations
 - A real shell, code execution, AI provider access, plugins, or extensions
@@ -96,7 +96,8 @@ FastAPI application
    └── security response headers
             │
             ├── Workspace service ── atomic UTF-8 files under one root
-            │          └── TrashStore ── bounded private recovery records
+            │          ├── TrashStore ── bounded private deleted-content records
+            │          └── HistoryStore ── bounded pre-overwrite text checkpoints
             │
             └── VirtualShell ─────── direct allowlisted method dispatch
                                      (no subprocess or OS shell)
@@ -127,7 +128,7 @@ Residual assumptions and limitations:
 - A malicious local process with permission to mutate the workspace concurrently may still attempt filesystem time-of-check/time-of-use races. This is a local convenience boundary, not an OS sandbox against another process running as the same user.
 - The bearer token is a shared secret, not user identity. Non-loopback deployments still need TLS, network controls, and operational log handling.
 - Static assets and health metadata are unauthenticated by design so the unlock UI can load; trusted-Host validation still applies.
-- Regular deletions now move to local Trash; explicit purge and `permanent=true` cannot be restored. Saved-edit version history is not implemented.
+- Regular deletions move to local Trash. Explicit purge and `permanent=true` remove that copy; separate older saved-history checkpoints remain until removed or expired. History is bounded recovery, not an off-device backup.
 - One unsaved editor draft may be stored in tab-scoped browser `sessionStorage` for reload recovery. It is not sent to Samsarix LLC or a third party.
 
 No credentials, tracking pixels, analytics SDKs, or third-party browser assets are included. API responses do not reveal the absolute host root.
@@ -135,7 +136,7 @@ No credentials, tracking pixels, analytics SDKs, or third-party browser assets a
 ## Data lifecycle and failure behavior
 
 - `init` creates only `WELCOME.md` and never overwrites it.
-- A save validates UTF-8 byte size and projected total quota, writes a temporary sibling, flushes it, and uses `os.replace` for atomic replacement.
+- A save validates UTF-8 byte size and projected total quota, checkpoints the prior content before a changed overwrite, writes a temporary sibling, flushes it, and rechecks disk contents before `os.replace`. Checkpoint retention can occur even if active replacement subsequently fails.
 - Existing-file saves can include the last ETag. A stale or deleted target returns HTTP 409 rather than overwriting silently.
 - Create/import operations atomically claim a new destination without replacement. Replacing an existing import requires confirmation and an exact current ETag.
 - Content search scans only bounded regular UTF-8 files and stops at its byte or result ceiling.
@@ -143,7 +144,7 @@ No credentials, tracking pixels, analytics SDKs, or third-party browser assets a
 - Listing and regular-file accounting do not follow symlinks.
 - The root path cannot be used as a mutation target.
 - Non-empty folder deletion needs an explicit recursive flag and UI confirmation.
-- Recovery records are kept in reserved `.samsarix-trash`, excluded from active APIs/search/accounting; restore uses exclusive destination creation and never overwrites another file.
+- Deleted-content records are kept in reserved `.samsarix-trash`; saved versions use separate `.samsarix-history`. Both are excluded from active APIs/search/accounting. Trash restore never replaces an existing target; History permits replacement only with the current disk ETag.
 - One server instance serializes reads and mutations with a reentrant lock. This does not coordinate multiple processes or constrain hostile same-permission OS writers.
 - Terminal sessions are created by the server, expire after inactivity, and are capped by an LRU ceiling.
 - Oversized declared or streamed bodies receive HTTP 413 before application deserialization completes.
@@ -356,12 +357,78 @@ Logical commits: `f54d4cf` recovery implementation; `a930fee` packaged folder re
 
 Disposition: alpha release candidate for a single trusted local user, not a hosted service or externally validated offering. The permanent-only deletion P1 is closed; saved-version checkpoints remain the next local P1. WebKit/physical-device coverage is P2. No known locally actionable P0 remains in the reviewed core journey. Public package ownership/trusted publishing, provenance/signing decisions, legal review for commercial terms, and consented external pilot participation remain owner-controlled gates. No package publication, production deployment, paid service, or outreach was performed.
 
+## `0.4.0` saved-version recovery
+
+Baseline reverified: clean `main` at `6e5729c3b774d8467b1cd60600a999b870ec053e`, with [post-merge CI 33401420685](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33401420685) and dependency graph successful. Local `python -m pytest --tb=short`: 117 passed, one Windows FIFO skip, 91.49% branch-aware coverage. Ruff and Mypy passed. The prior goal turn was concrete progress: Trash was implemented, reviewed, merged, and verified; saved-overwrite recovery remained the next P1.
+
+### Product decision
+
+The [Nextcloud version-control guide](https://docs.nextcloud.com/server/stable/user_manual/en/files/version_control.html) describes version restoration and bounded automatic expiration. The [VS Code history guide](https://code.visualstudio.com/docs/sourcecontrol/history) shows local saves alongside file history. Checked 2026-08-31: these support recoverable saves as an established workflow, not evidence of Samsarix demand or feature parity.
+
+The chosen journey is **save → preview prior/current disk contents → restore a new copy or confirm guarded replacement → recover the replaced contents while retention permits**. It targets accidental overwrites in notes, drafts, Markdown, and small configuration files without requiring Git, a database, or external services.
+
+Design and limits:
+
+- A changed app overwrite checkpoints the prior bounded UTF-8 bytes before active replacement. Creation/no-op saves do not create versions. Disk contents are checked again after checkpoint I/O; a new target is created exclusively even without an explicit create-only flag.
+- The owned `.samsarix-history` store contains immutable original paths, UTC checkpoint timestamps, sequence ordering, sizes, SHA-256 digests, and content. It shares bounded metadata/link guards with Trash but has independent retention: 50 MiB / 200 versions / 20 per original path by default.
+- Oldest checkpoints expire after a new checkpoint is flushed. Staging may temporarily use one extra checkpoint plus metadata. Checkpoint/retention failure blocks the active write, and incomplete/excess records block repeated growth. A failed active write may still add a useful checkpoint and expire old ones; this is explicit, not an all-filesystem transaction claim.
+- History is path-based provenance, not inferred file identity. Renames/deletions do not change recorded paths; **All files** keeps those versions discoverable. Reusing a path shares its history. No external writer monitoring, first-create snapshot, unsaved-keystroke capture, or folder timeline is promised.
+- Preview verifies the content digest. Restore-as-copy requires an unused path; replacement requires the previewed current ETag and checkpoints the replaced contents first. Dirty editors keep their text and original ETag; clean editors reload the restored file. User confirmation precedes in-place replacement or version removal.
+- History contains unencrypted prior content and names. Purging Trash or permanently removing an active file does not erase separate checkpoints. Retention is not secure erasure, encryption, or a backup. One trusted local user/process/root remains the boundary.
+
+Implemented: storage, API, virtual commands, history browser panel with read-only comparison, inline failure/retry, copy collision handling, confirmation/cancellation, and draft preservation. No runtime dependency or provider cost was added. New tests cover persistence, quotas/retention, corruption/hash/link boundaries, failed checkpoint/write, stale restore, an intervening host edit, and the browser-to-disk journey.
+
+Intermediate verification (not final release acceptance): Python 148 passed / one platform skip, 92.36% coverage; Ruff, Mypy, and JavaScript syntax checks passed. All 66 source browser executions passed in Chromium/Firefox, including 12 new history checks. Initial failures were the expected expanded command-allowlist assertion and a test client using an intentionally rejected Host; both test expectations/setup were corrected without relaxing production guards. Packaged-artifact, independent review, and exact-head CI checks remain required before merge. Final evidence will be added here and in the PR.
+
+### Packaged acceptance and cross-browser follow-up
+
+Runtime revision: `8c3f59c56595e37ed4804299c8378b1879c03789`, following history implementation `79c438ee0692c3e8fbd86f6be27fd6ef33d127d1`, in [PR #14](https://github.com/Deathcharge/samsarix-workspace/pull/14). The following commands use `output/playwright/lifecycle-env/Scripts/python.exe` (Python 3.11.9) unless another interpreter is specified. Browser fixtures assert that installed-wheel checks import from site-packages rather than this checkout.
+
+| Command / gate | Observed result |
+| --- | --- |
+| `python -m ruff check samsarix_workspace tests e2e` | Passed |
+| `python -m ruff format --check samsarix_workspace tests e2e` | Passed, 22 files |
+| `python -m mypy samsarix_workspace` | Passed, 10 source files |
+| `python -m pytest --tb=short` from the checkout | 148 passed, one Windows FIFO skip, 92.36% branch-aware coverage, 35.28 seconds |
+| `node --check samsarix_workspace/static/app.js` and `git diff --check` | Passed |
+| `python -m pytest e2e/test_editor.py -o addopts= --browser chromium --browser firefox --browser webkit -k non_json --tb=short` | 9 passed, 42 deselected, 30.88 seconds |
+| `python -m build --outdir output/playwright/history-reviewed-dist` | Isolated sdist and wheel builds passed |
+| `py -3.11 -m twine check output/playwright/history-reviewed-dist/samsarix_workspace-0.4.0-py3-none-any.whl output/playwright/history-reviewed-dist/samsarix_workspace-0.4.0.tar.gz` | Both passed |
+| `python -m pytest --tb=short` from `output/playwright/history-reviewed-sdist/samsarix_workspace-0.4.0`, extracted from that sdist | 148 passed, one Windows FIFO skip, 92.36% branch-aware coverage, 36.26 seconds |
+| `python -m pytest C:/Users/Andrew/Helix/helix-web-os/e2e -o addopts= --browser chromium --browser firefox --browser webkit --tracing retain-on-failure --screenshot only-on-failure --output C:/Users/Andrew/Helix/helix-web-os/output/playwright/history-reviewed-wheel --tb=short` from `output/playwright/wheel-check` with `SAMSARIX_TEST_INSTALLED=1` | 99 passed, 397.62 seconds; all three engines exercised the installed wheel |
+| Wheel installed into clean runtime-only `output/playwright/history-runtime`; import from outside checkout, `python -m samsarix_workspace --version`, `python -m pip check` | Site-packages path verified, version 0.4.0, no broken requirements |
+| `py -3.11 -m pip_audit --path output/playwright/history-runtime/Lib/site-packages --skip-editable` | No known dependency vulnerabilities; Samsarix is unavailable in the PyPI advisory index and cannot itself be audited there |
+| [CI 33407552656](https://github.com/Deathcharge/samsarix-workspace/actions/runs/33407552656) at `8c3f59c` | All eight jobs passed: Python 3.11/3.13 on Linux/Windows and four installed-wheel browser jobs |
+
+CI unit results are 148 passed / one platform skip per matrix member, with 92.07% Linux and 92.36% Windows branch coverage. Browser jobs each pass 33 scenarios (132 CI executions total). A read-only CI log request briefly timed out during its TLS handshake; retry retrieved the passing logs without rerunning or altering the jobs.
+
+The exploratory WebKit run against the first wheel passed 30 scenarios and failed three non-JSON error-response cases. WebKit's `Response.json()` rejected malformed JSON with a DOMException named `SyntaxError`, not a JavaScript `SyntaxError` instance; the shared handler incorrectly classified HTTP/authentication errors as a network failure. Draft contents were retained. Parsing `await response.text()` with JavaScript `JSON.parse` now keeps syntax and transport failures distinct. All nine targeted cases pass across Chromium, Firefox, and WebKit. This was a reliability regression discovered by extending verification, not a claimed security finding. The new WebKit CI job runs the same 33 scenarios without loosening assertions. [Playwright's browser documentation](https://playwright.dev/python/docs/browsers) distinguishes its patched WebKit from branded Safari; macOS and physical Apple-device acceptance remain unperformed.
+
+Headed Playwright verification also exercised save → prior/current preview → restore-as-copy and checked the real files: the original file retained the current edit, and the new copy contained the earlier bytes. Desktop 1280×900 and mobile 390×844 screenshots were inspected. Evidence remains in ignored `output/playwright/history-manual/history-desktop-final.png` and `history-mobile-final.png`. The dedicated browser session and identified test server were stopped; only disposable test workspaces were used. The upstream Starlette/httpx deprecation warning remains visible rather than suppressed.
+
+Final local artifact SHA-256 in `output/playwright/history-reviewed-dist` (identifies these exact files, not future rebuilds):
+
+- `samsarix_workspace-0.4.0-py3-none-any.whl`: `9519fa3ecae0326810d5ce5a11a2b26fa95f964d28d8ee08c9647a47b8287d58`
+- `samsarix_workspace-0.4.0.tar.gz`: `900d8c5b0a5149f4d539c1ec5647cd66bb3a4817e78548f3129ed48664aa5b74`
+
+Later evidence/rollback documentation changes do not change the packaged files. Backups and safe rollback are documented in [Getting started](GETTING_STARTED.md#backups-and-rollback): stop the server, retain complete protected copies, verify a disposable copy, and pair an older wheel with its matching pre-upgrade backup. In particular, do not point 0.3.0 at an upgraded live root because that version does not hide `.samsarix-history`.
+
+### Review scope and disposition
+
+Codex Security scan `09195769-0ab7-441f-8572-476ddf64cd81` sealed successfully for immutable `6e5729c..79c438e` with no reportable findings. Parent review accounted for all 13 generated source/config/browser items and nine additional changed test/documentation files. An independent fresh-context architecture review mapped 18 effective resources and verified 162 source citations. However, the completed tool artifact retained `coverage.completeness=partial` and an earlier architecture-reconciliation deferral despite accepting the final model and coverage surface. The sealed artifact is preserved unchanged: this evidence must not be called an unqualified complete-coverage sign-off. The access/TAC connector was unavailable. Later WebKit parsing/CI and documentation changes are outside that immutable scan; their diff and regressions were reviewed separately. No persistent security configuration was changed.
+
+CodeRabbit acknowledged one included manual review request, but the latest status is a successful **review skipped** result for the repository's star threshold, with no submitted review or inline findings. A green status is not an external approval. No additional paid review was requested. Final exact-head and post-merge CI URLs belong in PR #14, avoiding a self-referential documentation commit.
+
+Changed implementation surfaces: new `history.py` and shared `recovery.py`; `workspace.py`, `trash.py`, `api.py`, `shell.py`; package/version metadata; all three static browser files; and `.github/workflows/ci.yml`. Tests cover history, virtual commands, CLI version, and the browser journey. README, changelog, roadmap, API reference, onboarding, and this record describe the implemented limits. Logical commits are `79c438e` (saved-version recovery), `8c3f59c` (WebKit response handling and CI), followed by the evidence/rollback documentation commit.
+
+Disposition: **alpha release candidate for one trusted local user**, with the saved-overwrite-recovery P1 implemented. It is not a hosted service, backup product, publicly published package, or externally validated competitive offering. No known locally actionable P0 remains in the exercised core journey. History consumes bounded additional local storage and retains unencrypted prior contents and names; normal purge is not secure erasure. No runtime dependency, provider bill, telemetry, public deployment, package publication, or outreach was added. CI now has one additional browser job. AGPL-3.0-only and Samsarix LLC/contact/support metadata are unchanged.
+
 ## Next best work
 
 The next release should favor reliability over breadth:
 
-1. Add bounded saved-version checkpoints with explicit retention and restore semantics; Trash already covers deletion, not overwriting an existing file.
-2. Extend browser coverage to WebKit, preserving the existing lifecycle regression cases.
-3. Run a small external pilot against the exact wheel and capture consented, privacy-preserving task success/support evidence.
-4. If hosted multi-user use becomes a real requirement, design identity, authorization, per-tenant roots, audit logging, CSRF/origin controls, and deployment isolation as a separate security phase—not as a flag on the local app.
-5. Before PyPI publication, reserve the package name, configure trusted publishing, generate provenance/SBOM artifacts, and document a rollback process.
+1. **P1 / owner coordination:** run a small external pilot against the exact wheel and capture consented, privacy-preserving task-success/support evidence; prioritize usability follow-ups from that evidence. No user contact or demand is invented.
+2. **P1 / publication gate:** settle package-index ownership, trusted publishing, provenance/signing, and commercial-license legal review before authorizing a public prerelease. Locally prepared artifacts and source merges are not publication.
+3. **P2:** verify macOS and physical Apple devices, then expand interruption/longer-running usage tests based on real pilot failures. The current Windows/Linux and three-engine checks do not replace those environments.
+4. **P2:** prepare reproducible SBOM/provenance generation without adding release credentials or publishing implicitly. Preserve matching application/workspace backups and the documented rollback boundary.
+5. If hosted multi-user use becomes a real requirement, design identity, authorization, per-tenant roots, audit logging, CSRF/origin controls, and deployment isolation as a separate security phase—not as a flag on the local app.

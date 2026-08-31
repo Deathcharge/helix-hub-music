@@ -46,6 +46,10 @@ class VirtualShell:
   trash                List recovery items and their IDs
   restore <id> [path]  Restore without overwriting an existing path
   purge <id> --confirm Permanently delete one Trash item
+  history [path]      List saved versions (paths stay as captured)
+  version <id>        Preview a saved text version
+  restore-version <id> <path> [etag]  Restore a new copy; an ETag permits replacement
+  purge-version <id> --confirm  Permanently remove one saved version
   echo [text]          Print text (redirection is not supported)
   clear                Clear terminal output
 
@@ -82,6 +86,10 @@ This is a safe virtual terminal, not an operating-system shell."""
             "trash": self._trash,
             "restore": self._restore,
             "purge": self._purge,
+            "history": self._history,
+            "version": self._version,
+            "restore-version": self._restore_version,
+            "purge-version": self._purge_version,
             "echo": self._echo,
             "clear": self._clear,
         }
@@ -298,6 +306,35 @@ This is a safe virtual terminal, not an operating-system shell."""
             raise WorkspaceError("usage", "Usage: purge <id> --confirm")
         self.workspace.purge(args[0])
         return ShellResult("Permanently deleted the Trash item.", self.cwd)
+
+    def _history(self, args: list[str]) -> ShellResult:
+        if len(args) > 1:
+            raise WorkspaceError("usage", "Usage: history [path]")
+        items = self.workspace.history_report(self._path(args[0]) if args else None)["items"]
+        lines = [
+            f"{item['id']}  {item['state']}  {item['path'] or '(unreadable metadata)'}  "
+            f"{item['saved_at'] or ''}"
+            for item in items
+        ]
+        return ShellResult("\n".join(lines) or "No saved versions.", self.cwd)
+
+    def _version(self, args: list[str]) -> ShellResult:
+        self._require_count(args, 1, "version <id>")
+        return ShellResult(self.workspace.read_version(args[0])["content"], self.cwd)
+
+    def _restore_version(self, args: list[str]) -> ShellResult:
+        if len(args) not in {2, 3}:
+            raise WorkspaceError("usage", "Usage: restore-version <id> <path> [etag]")
+        document = self.workspace.restore_version(
+            args[0], self._path(args[1]), expected_etag=args[2] if len(args) == 3 else None
+        )
+        return ShellResult(f"Restored saved version: {document.path}", self.cwd)
+
+    def _purge_version(self, args: list[str]) -> ShellResult:
+        if len(args) != 2 or args[1] != "--confirm":
+            raise WorkspaceError("usage", "Usage: purge-version <id> --confirm")
+        self.workspace.purge_version(args[0])
+        return ShellResult("Permanently removed the saved version.", self.cwd)
 
     def _echo(self, args: list[str]) -> ShellResult:
         return ShellResult(" ".join(args), self.cwd)

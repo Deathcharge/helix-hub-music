@@ -81,6 +81,9 @@ class AppSettings:
     max_trash_bytes: int = 52_428_800
     max_trash_items: int = 100
     max_trash_entries: int = 2_000
+    max_history_bytes: int = 52_428_800
+    max_history_items: int = 200
+    max_history_per_file: int = 20
     max_request_bytes: int = 1_310_720
     max_search_bytes: int = 10_485_760
     max_sessions: int = 128
@@ -230,6 +233,11 @@ class RestoreRequest(StrictModel):
     destination: str | None = Field(default=None, min_length=1, max_length=512)
 
 
+class RestoreVersionRequest(StrictModel):
+    destination: str = Field(min_length=1, max_length=512)
+    expected_etag: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
 class TerminalRequest(StrictModel):
     command: str = Field(max_length=2_048)
     session_id: str | None = Field(default=None, min_length=36, max_length=36)
@@ -311,6 +319,9 @@ def create_app(
         max_trash_bytes=resolved_settings.max_trash_bytes,
         max_trash_items=resolved_settings.max_trash_items,
         max_trash_entries=resolved_settings.max_trash_entries,
+        max_history_bytes=resolved_settings.max_history_bytes,
+        max_history_items=resolved_settings.max_history_items,
+        max_history_per_file=resolved_settings.max_history_per_file,
     )
     sessions = ShellSessions(
         workspace,
@@ -472,6 +483,33 @@ def create_app(
                 "confirmation_required", "Confirm permanent deletion of this Trash item."
             )
         workspace.purge(trash_id)
+        return {"purged": True}
+
+    @router.get("/history")
+    def list_history(
+        path: Annotated[str | None, Query(min_length=1, max_length=512)] = None,
+    ) -> dict[str, Any]:
+        return {"history": workspace.history_report(path)}
+
+    @router.get("/history/{version_id}")
+    def read_version(version_id: str) -> dict[str, Any]:
+        return {"version": workspace.read_version(version_id)}
+
+    @router.post("/history/{version_id}/restore")
+    def restore_version(version_id: str, payload: RestoreVersionRequest) -> dict[str, Any]:
+        return {
+            "file": workspace.restore_version(
+                version_id, payload.destination, expected_etag=payload.expected_etag
+            ).to_dict()
+        }
+
+    @router.delete("/history/{version_id}")
+    def purge_version(version_id: str, confirm: bool = False) -> dict[str, bool]:
+        if not confirm:
+            raise WorkspaceError(
+                "confirmation_required", "Confirm permanent removal of this saved version."
+            )
+        workspace.purge_version(version_id)
         return {"purged": True}
 
     @router.post("/terminal/execute")

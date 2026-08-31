@@ -22,6 +22,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from samsarix_workspace.errors import WorkspaceError as WorkspaceError
+from samsarix_workspace.history import HistoryStore
 from samsarix_workspace.trash import TrashStore, linked_metadata, reserved_name
 
 P = ParamSpec("P")
@@ -115,6 +116,9 @@ class Workspace:
         max_trash_bytes: int = 52_428_800,
         max_trash_items: int = 100,
         max_trash_entries: int = 2_000,
+        max_history_bytes: int = 52_428_800,
+        max_history_items: int = 200,
+        max_history_per_file: int = 20,
     ) -> None:
         requested_root = Path(root).expanduser()
         requested_root.mkdir(parents=True, exist_ok=True)
@@ -132,9 +136,19 @@ class Workspace:
             max_items=max_trash_items,
             max_entries=max_trash_entries,
         )
+        self._history = HistoryStore(
+            self,
+            max_bytes=max_history_bytes,
+            max_items=max_history_items,
+            max_per_file=max_history_per_file,
+        )
 
     @staticmethod
     def _public_path(path: str) -> PurePosixPath:
+        try:
+            path.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise WorkspaceError("invalid_path", "Paths must contain valid Unicode text.") from exc
         if "\x00" in path or "\\" in path:
             raise WorkspaceError("invalid_path", "Paths must be relative and use forward slashes.")
         if any(part in {"", ".", ".."} for part in path.split("/")):
@@ -144,7 +158,8 @@ class Workspace:
             raise WorkspaceError("invalid_path", "Absolute paths are not allowed.")
         if any(reserved_name(part) for part in public.parts):
             raise WorkspaceError(
-                "reserved_path", "Samsarix recovery storage is private; use Trash actions."
+                "reserved_path",
+                "Samsarix recovery storage is private; use Trash or History actions.",
             )
         return public
 
@@ -211,7 +226,8 @@ class Workspace:
             raise WorkspaceError("path_escape", "Path escapes the workspace root.") from exc
         if any(reserved_name(part) for part in relative.parts):
             raise WorkspaceError(
-                "reserved_path", "Samsarix recovery storage is private; use Trash actions."
+                "reserved_path",
+                "Samsarix recovery storage is private; use Trash or History actions.",
             )
         if must_exist and not candidate.exists():
             raise WorkspaceError("not_found", "The requested entry does not exist.", 404)
@@ -512,7 +528,12 @@ class Workspace:
     ) -> FileDocument:
         """Atomically create or replace a UTF-8 file within configured quotas."""
 
-        content_bytes = content.encode("utf-8")
+        try:
+            content_bytes = content.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise WorkspaceError(
+                "invalid_content", "File content must be valid UTF-8 text."
+            ) from exc
         if len(content_bytes) > self.max_file_bytes:
             raise WorkspaceError(
                 "file_too_large",
@@ -527,6 +548,7 @@ class Workspace:
 
         with self._lock:
             old_size = 0
+            existing: bytes | None = None
             if candidate.exists():
                 if create_only:
                     raise WorkspaceError(
@@ -534,7 +556,7 @@ class Workspace:
                     )
                 if not candidate.is_file():
                     raise WorkspaceError("not_a_file", "The destination is not a file.")
-                existing = candidate.read_bytes()
+                existing = self.read_file(path).content.encode("utf-8")
                 old_size = len(existing)
                 if expected_etag is not None and self._etag_bytes(existing) != expected_etag:
                     raise WorkspaceError(
@@ -547,6 +569,9 @@ class Workspace:
                     "edit_conflict", "The file no longer exists. Refresh before saving.", 409
                 )
 
+            if existing == content_bytes:
+                return self.read_file(path)
+
             projected = self.usage_bytes() - old_size + len(content_bytes)
             if projected > self.max_total_bytes:
                 raise WorkspaceError(
@@ -554,6 +579,9 @@ class Workspace:
                     f"Workspace storage is limited to {self.max_total_bytes} bytes.",
                     413,
                 )
+
+            if existing is not None:
+                self._history.checkpoint(path, existing)
 
             temporary_name: str | None = None
             try:
@@ -568,11 +596,27 @@ class Workspace:
                     temporary.flush()
                     os.fsync(temporary.fileno())
                     temporary_name = temporary.name
-                if create_only:
+                if existing is None:
                     os.link(temporary_name, candidate)
                     Path(temporary_name).unlink()
                     temporary_name = None
                 else:
+                    # Check again after checkpoint I/O: never overwrite an intervening disk edit
+                    # whose contents have not been preserved in this transaction's snapshot.
+                    try:
+                        current_etag = self.read_file(path).etag
+                    except WorkspaceError as exc:
+                        raise WorkspaceError(
+                            "edit_conflict",
+                            "The file changed while saving; refresh before retrying.",
+                            409,
+                        ) from exc
+                    if current_etag != self._etag_bytes(existing):
+                        raise WorkspaceError(
+                            "edit_conflict",
+                            "The file changed while saving; refresh before retrying.",
+                            409,
+                        )
                     os.replace(temporary_name, candidate)
             except FileExistsError as exc:
                 if temporary_name:
@@ -580,11 +624,41 @@ class Workspace:
                 raise WorkspaceError(
                     "already_exists", "An entry already exists at that path.", 409
                 ) from exc
-            except OSError as exc:
+            except (OSError, WorkspaceError) as exc:
                 if temporary_name:
                     Path(temporary_name).unlink(missing_ok=True)
+                if isinstance(exc, WorkspaceError):
+                    raise
                 raise WorkspaceError("write_failed", "The file could not be saved.", 500) from exc
         return self.read_file(path)
+
+    @_locked
+    def history_report(self, path: str | None = None) -> dict[str, Any]:
+        """List retained checkpoints; paths remain the names used at capture time."""
+        return self._history.report(path)
+
+    @_locked
+    def read_version(self, version_id: str) -> dict[str, Any]:
+        """Read and verify a bounded UTF-8 checkpoint without changing the active file."""
+        return self._history.read(version_id)
+
+    @_locked
+    def restore_version(
+        self, version_id: str, destination: str, *, expected_etag: str | None = None
+    ) -> FileDocument:
+        """Restore to a new path, or replace only the explicitly identified disk version."""
+        version = self._history.read(version_id)
+        return self.write_file(
+            destination,
+            version["content"],
+            expected_etag=expected_etag,
+            create_only=expected_etag is None,
+        )
+
+    @_locked
+    def purge_version(self, version_id: str) -> None:
+        """Permanently remove one checkpoint; public callers must confirm intent."""
+        self._history.purge(version_id)
 
     @_locked
     def make_directory(self, path: str) -> Entry:

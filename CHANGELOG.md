@@ -6,6 +6,23 @@ Notable changes are recorded here. Versions follow [Semantic Versioning](https:/
 
 No unreleased changes yet.
 
+## [0.4.0] - 2026-08-31
+
+### Added
+
+- Persistent pre-overwrite UTF-8 checkpoints, bounded by separate global bytes/items and per-original-path retention
+- History listing, content preview, restore-as-copy, ETag-guarded replacement, and confirmed single-version removal in the API and virtual terminal
+- Browser comparison of saved/current disk contents, inline error/retry states, and restoration that preserves unsaved editor drafts
+- Retention, restart, checksum, metadata/link boundary, failed checkpoint/write, and intervening disk-edit regressions
+
+### Changed
+
+- `.samsarix-history` is reserved alongside Trash; both stores share bounded metadata and filesystem guards
+- Saves recheck the disk content after checkpoint creation; newly created targets use exclusive creation even without an explicit create-only flag
+- Existing binary/oversized files cannot be overwritten through text saves because they cannot be safely checkpointed as bounded UTF-8 content
+- History retention may run when preparing a save that subsequently fails; the current file remains unchanged and its checkpoint is retained
+- API response parsing preserves HTTP error/unlock handling in WebKit when an upstream response is not JSON; browser CI now includes WebKit
+
 ## [0.3.0] - 2026-08-31
 
 ### Added

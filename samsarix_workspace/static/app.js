@@ -15,6 +15,10 @@ const state = {
   mutating: false,
   trashLoading: false,
   trashGeneration: 0,
+  historyLoading: false,
+  historyGeneration: 0,
+  historyVersion: null,
+  historyCurrent: null,
   restoreItem: null,
   confirmAction: null,
   terminalSession: null,
@@ -45,6 +49,10 @@ const elements = Object.fromEntries(
     "token-form", "token-input", "token-error", "toast",
     "trash-button", "trash-dialog", "trash-refresh", "trash-status", "trash-error", "trash-items",
     "entry-error", "confirm-error", "confirm-submit",
+    "history-button", "history-dialog", "history-path", "history-refresh", "history-all",
+    "history-status", "history-retention", "history-error", "history-items", "history-preview",
+    "history-preview-title", "history-current-status", "history-content", "history-current",
+    "history-copy-form", "history-destination", "history-copy", "history-replace",
   ].map((id) => [id, document.getElementById(id)])
 );
 
@@ -69,7 +77,9 @@ async function api(path, options = {}) {
   try {
     response = await fetch(path, { ...options, headers, signal: controller.signal });
     try {
-      payload = await response.json();
+      // Parse in this realm: WebKit can reject Response.json() with a DOMException
+      // named SyntaxError rather than a JavaScript SyntaxError instance.
+      payload = JSON.parse(await response.text());
     } catch (error) {
       if (!(error instanceof SyntaxError)) throw error;
       payload = null;
@@ -143,6 +153,15 @@ function updateEditorActions() {
   elements["entry-submit"].disabled = state.mutating;
   elements["confirm-form"].querySelector("[type=submit]").disabled = state.mutating;
   elements["trash-button"].disabled = busy;
+  elements["history-button"].disabled = busy;
+  for (const id of ["history-refresh", "history-all", "history-path", "history-destination"]) {
+    elements[id].disabled = busy || state.historyLoading;
+  }
+  elements["history-copy"].disabled = busy || state.historyLoading || !state.historyVersion;
+  elements["history-replace"].disabled = busy || state.historyLoading || !state.historyCurrent;
+  elements["history-items"].querySelectorAll("button").forEach((button) => {
+    button.disabled = busy || state.historyLoading || button.dataset.unavailable === "true";
+  });
   elements["trash-refresh"].disabled = busy || state.trashLoading;
   elements["trash-items"].querySelectorAll("button").forEach((button) => {
     button.disabled = busy || state.trashLoading || button.dataset.unavailable === "true";
@@ -990,11 +1009,158 @@ async function loadTrash() {
   }
 }
 
+async function openHistory() {
+  if (state.loading || state.saving || state.mutating) return;
+  elements["history-path"].value = state.selectedKind === "file" ? state.selectedPath : "";
+  elements["history-dialog"].showModal();
+  await loadHistory();
+}
+
+async function loadHistory() {
+  const generation = ++state.historyGeneration;
+  state.historyLoading = true;
+  state.historyVersion = null;
+  state.historyCurrent = null;
+  elements["history-preview"].hidden = true;
+  elements["history-dialog"].setAttribute("aria-busy", "true");
+  elements["history-error"].textContent = "";
+  elements["history-status"].textContent = "Loading saved versions…";
+  updateEditorActions();
+  try {
+    const path = elements["history-path"].value.trim();
+    const { history } = await api(`/api/v1/history${path ? `?path=${encodeURIComponent(path)}` : ""}`);
+    if (generation !== state.historyGeneration) return;
+    elements["history-items"].replaceChildren();
+    elements["history-status"].textContent = `${history.items.length} shown · ${history.total_items} / ${history.limits.max_items} total · ${history.unavailable_items ? "at least " : ""}${formatBytes(history.usage_bytes)} / ${formatBytes(history.limits.max_bytes)}`;
+    elements["history-retention"].textContent = `Automatic retention: up to ${history.limits.max_per_file} versions per original path. Oldest checkpoints expire when these limits require it; Trash is unaffected.`;
+    if (history.unavailable_items) elements["history-error"].textContent = "Unavailable records block new checkpoints. Inspect or remove them before saving existing files.";
+    if (!history.items.length) elements["history-items"].textContent = "No saved versions. Checkpoints appear before an existing text file is overwritten through the app.";
+    for (const item of history.items) {
+      const card = document.createElement("section");
+      card.className = "trash-item";
+      const title = document.createElement("h3");
+      title.textContent = item.path || "Unavailable saved version";
+      const detail = document.createElement("p");
+      detail.textContent = item.state === "ready" ? `Version ${item.sequence} · ${formatBytes(item.size)} · ${new Date(item.saved_at).toLocaleString()}` : item.id;
+      const actions = document.createElement("div");
+      actions.className = "trash-actions";
+      const preview = document.createElement("button");
+      preview.type = "button";
+      preview.className = "button primary";
+      preview.textContent = "Preview";
+      preview.setAttribute("aria-label", `Preview ${item.path || item.id} version ${item.sequence}`);
+      preview.dataset.unavailable = String(item.state !== "ready");
+      preview.addEventListener("click", () => previewVersion(item));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "button danger-ghost";
+      remove.textContent = "Remove version";
+      remove.setAttribute("aria-label", `Remove ${item.path || item.id} version ${item.sequence}`);
+      remove.addEventListener("click", () => requestVersionAction("purge-version", item));
+      actions.append(preview, remove);
+      card.append(title, detail, actions);
+      elements["history-items"].append(card);
+    }
+  } catch (error) {
+    if (generation !== state.historyGeneration) return;
+    elements["history-items"].replaceChildren();
+    elements["history-status"].textContent = "History could not be loaded.";
+    elements["history-error"].textContent = error.message || "Refresh history to retry.";
+  } finally {
+    if (generation === state.historyGeneration) {
+      state.historyLoading = false;
+      elements["history-dialog"].setAttribute("aria-busy", "false");
+      updateEditorActions();
+    }
+  }
+}
+
+async function previewVersion(item) {
+  if (state.mutating || state.historyLoading || item.state !== "ready") return;
+  const generation = ++state.historyGeneration;
+  state.historyLoading = true;
+  state.historyVersion = null;
+  state.historyCurrent = null;
+  elements["history-dialog"].setAttribute("aria-busy", "true");
+  elements["history-status"].textContent = "Loading version preview…";
+  elements["history-preview"].hidden = true;
+  elements["history-error"].textContent = "";
+  updateEditorActions();
+  try {
+    const { version } = await api(`/api/v1/history/${item.id}`);
+    let current = null;
+    let currentMessage = "The original path is absent. Restore a new copy to recover this version.";
+    try {
+      current = (await api(`/api/v1/file?path=${encodeURIComponent(version.path)}`)).file;
+      currentMessage = `Current disk file: ${version.path} · ETag ${current.etag}`;
+    } catch (error) {
+      if (error.code !== "not_found") currentMessage = `Current disk file unavailable: ${error.message}. Restore a new copy instead.`;
+    }
+    if (generation !== state.historyGeneration) return;
+    state.historyVersion = version;
+    state.historyCurrent = current;
+    elements["history-preview-title"].textContent = `${version.path} · saved version ${version.sequence}`;
+    elements["history-content"].value = version.content;
+    elements["history-current"].value = current ? current.content : "";
+    elements["history-current-status"].textContent = currentMessage;
+    elements["history-status"].textContent = "Saved version ready. Restore a new copy or confirm replacement of the previewed disk file.";
+    elements["history-destination"].value = `${version.path}.restored`;
+    elements["history-preview"].hidden = false;
+    elements["history-preview"].scrollIntoView({ block: "nearest" });
+  } catch (error) {
+    if (generation === state.historyGeneration) {
+      elements["history-status"].textContent = "Version preview could not be loaded.";
+      elements["history-error"].textContent = error.message || "This version could not be previewed.";
+    }
+  } finally {
+    if (generation === state.historyGeneration) {
+      state.historyLoading = false;
+      elements["history-dialog"].setAttribute("aria-busy", "false");
+      updateEditorActions();
+    }
+  }
+}
+
+async function restoreVersionCopy(event) {
+  event.preventDefault();
+  if (state.mutating || state.historyLoading || !state.historyVersion) return;
+  const destination = elements["history-destination"].value.trim();
+  if (!destination) return;
+  const version = state.historyVersion;
+  state.mutating = true;
+  elements["history-error"].textContent = "";
+  updateEditorActions();
+  try {
+    await api(`/api/v1/history/${version.id}/restore`, { method: "POST", body: JSON.stringify({ destination }) });
+    await refreshWorkspace();
+    toast(`Restored a new copy: ${destination}. Your editor was kept unchanged.`);
+  } catch (error) {
+    elements["history-error"].textContent = error.message || "The copy could not be restored.";
+    showError(error);
+  } finally {
+    state.mutating = false;
+    updateEditorActions();
+  }
+}
+
+function requestVersionAction(type, item) {
+  if (state.mutating || state.historyLoading || !item) return;
+  if (type === "restore-version" && !state.historyCurrent) return;
+  state.confirmAction = { type, id: item.id, path: item.path, etag: state.historyCurrent?.etag };
+  elements["confirm-title"].textContent = type === "restore-version" ? "Replace the current disk file?" : "Permanently remove this saved version?";
+  elements["confirm-message"].textContent = type === "restore-version"
+    ? `${item.path} will be replaced with saved version ${item.sequence}, only if it still matches the disk preview. Current disk content is checkpointed first. Unsaved editor drafts are kept.`
+    : `This checkpoint of ${item.path || item.id} will be removed permanently. The active file, other versions, and Trash are unchanged.`;
+  elements["confirm-submit"].textContent = type === "restore-version" ? "Replace disk file" : "Remove version permanently";
+  elements["confirm-error"].textContent = "";
+  elements["confirm-dialog"].showModal();
+}
+
 function requestPurge(item) {
   if (state.mutating || state.trashLoading) return;
   state.confirmAction = { type: "purge", id: item.id };
   elements["confirm-title"].textContent = "Permanently delete recovery item?";
-  elements["confirm-message"].textContent = `${item.path || item.id} will be removed from Trash. It cannot be restored through Samsarix Workspace afterward.`;
+  elements["confirm-message"].textContent = `${item.path || item.id} will be removed from Trash. This Trash copy cannot be restored afterward. Older saved-history checkpoints, if any, are separate and remain until removed or expired.`;
   elements["confirm-submit"].textContent = "Delete permanently";
   elements["confirm-error"].textContent = "";
   elements["confirm-dialog"].showModal();
@@ -1023,9 +1189,25 @@ async function confirmDelete(event) {
   if (!action) return;
   elements["confirm-error"].textContent = "";
   state.mutating = true;
+  let reloadPath = null;
   updateEditorActions();
   try {
-    if (action.type === "purge") {
+    if (action.type === "purge-version") {
+      await api(`/api/v1/history/${action.id}?confirm=true`, { method: "DELETE" });
+      elements["confirm-dialog"].close();
+      await loadHistory();
+      toast("Permanently removed the saved version.");
+    } else if (action.type === "restore-version") {
+      await api(`/api/v1/history/${action.id}/restore`, { method: "POST", body: JSON.stringify({ destination: action.path, expected_etag: action.etag }) });
+      elements["confirm-dialog"].close();
+      elements["history-dialog"].close();
+      if (state.selectedPath === action.path && !state.dirty) {
+        reloadPath = action.path;
+        closeDocument();
+      }
+      await refreshWorkspace();
+      toast(`Restored ${action.path}.${state.dirty ? " Your unsaved editor draft is unchanged; resolve its disk conflict before saving." : ""}`);
+    } else if (action.type === "purge") {
       await api(`/api/v1/trash/${action.id}?confirm=true`, { method: "DELETE" });
       elements["confirm-dialog"].close();
       await loadTrash();
@@ -1049,7 +1231,9 @@ async function confirmDelete(event) {
     if (action.type === "purge" && !elements["confirm-dialog"].open && elements["trash-dialog"].open) {
       elements["trash-refresh"].focus();
     }
+    if (action.type === "purge-version" && !elements["confirm-dialog"].open && elements["history-dialog"].open) elements["history-refresh"].focus();
   }
+  if (reloadPath) await openFile(reloadPath);
 }
 
 function appendTerminal(text, className = "") {
@@ -1086,7 +1270,7 @@ async function runTerminal(event) {
     elements["terminal-prompt"].textContent = `${payload.cwd}$`;
     if (payload.clear) elements["terminal-output"].replaceChildren();
     appendTerminal(payload.output, payload.exit_code ? "terminal-error" : "");
-    if (["mkdir", "touch", "mv", "rm", "restore", "purge"].includes(command.split(/\s+/, 1)[0].toLowerCase())) await refreshWorkspace();
+    if (["mkdir", "touch", "mv", "rm", "restore", "purge", "restore-version", "purge-version"].includes(command.split(/\s+/, 1)[0].toLowerCase())) await refreshWorkspace();
   } catch (error) {
     appendTerminal(error.message || "Terminal request failed.", "terminal-error");
   }
@@ -1117,6 +1301,22 @@ async function submitToken(event) {
 elements["refresh-button"].addEventListener("click", () => refreshWorkspace());
 elements["trash-button"].addEventListener("click", openTrash);
 elements["trash-refresh"].addEventListener("click", loadTrash);
+elements["history-button"].addEventListener("click", openHistory);
+elements["history-refresh"].addEventListener("click", loadHistory);
+elements["history-all"].addEventListener("click", () => {
+  elements["history-path"].value = "";
+  loadHistory();
+});
+elements["history-path"].addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { event.preventDefault(); loadHistory(); }
+});
+elements["history-dialog"].addEventListener("close", () => {
+  state.historyGeneration += 1;
+  state.historyLoading = false;
+  updateEditorActions();
+});
+elements["history-copy-form"].addEventListener("submit", restoreVersionCopy);
+elements["history-replace"].addEventListener("click", () => requestVersionAction("restore-version", state.historyVersion));
 elements["import-button"].addEventListener("click", () => elements["file-input"].click());
 elements["file-input"].addEventListener("change", importFiles);
 elements["new-file-button"].addEventListener("click", () => openEntryDialog("file"));
