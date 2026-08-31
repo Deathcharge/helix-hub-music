@@ -253,16 +253,18 @@ Commands used the disposable Python 3.11 environment at `output/playwright/lifec
 | `py -3.11 -m twine check dist/samsarix_workspace-0.2.1-py3-none-any.whl dist/samsarix_workspace-0.2.1.tar.gz` | Both passed |
 | `python -m pytest` inside the extracted sdist | 56 passed, one expected Windows FIFO skip; 90.87% coverage; packaged fixtures are sufficient |
 | Installed-wheel import, CLI `--version`, and `python -m pip check` | Version `0.2.1`; no broken requirements |
-| `python -m pytest <absolute-checkout>/e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output <absolute-checkout>/output/playwright/wheel-final` from outside the checkout with `SAMSARIX_TEST_INSTALLED=1` | 32 passed in 133.00 seconds on Windows; Chromium and Firefox |
+| `python -m pytest <absolute-checkout>/e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output <absolute-checkout>/output/playwright/wheel-reviewed` from outside the checkout with `SAMSARIX_TEST_INSTALLED=1` | 38 passed in 140.61 seconds on Windows; Chromium and Firefox, including all review follow-ups |
 | `py -3.11 -m pip_audit --path output/playwright/lifecycle-env/Lib/site-packages --progress-spinner off` | No known dependency vulnerabilities after updating the disposable environment's pip/setuptools; unpublished `samsarix-workspace` skipped |
 | Headed Chromium at 390×844 | Document open/preview works, no horizontal overflow, no console errors or warnings |
 
-The current Starlette test client emits one upstream deprecation warning about its `httpx` integration; it does not fail these checks. No warning filter was added. Browser tests cover 16 scenarios per engine against real temporary files. The installed-wheel run starts outside the checkout and asserts that the server imports from `site-packages`, preventing a source checkout from masking packaging failures. Failure traces exposed a Firefox selection-test synchronization issue; the test now explicitly waits for the editor to be visible before inspecting its selected text.
+The current Starlette test client emits one upstream deprecation warning about its `httpx` integration; it does not fail these checks. No warning filter was added. Browser tests cover 19 scenarios per engine against real temporary files. The installed-wheel run starts outside the checkout and asserts that the server imports from `site-packages`, preventing a source checkout from masking packaging failures. Failure traces exposed a Firefox selection-test synchronization issue; the test now explicitly waits for the editor to be visible before inspecting its selected text.
+
+The [PR #12 review](https://github.com/Deathcharge/samsarix-workspace/pull/12) identified three minor follow-ups: an outdated roadmap milestone, clock setup after navigation, and non-JSON HTTP errors classified as network failures. The roadmap reference was corrected; an opt-in fixture installs the fake clock before navigation following the [official clock guidance](https://playwright.dev/python/docs/clock); and the API client preserves HTTP status/authentication recovery while distinguishing invalid success payloads from connection failures. Three new browser cases cover non-JSON 200/400/401 responses, retained drafts, online state, authentication prompts, and retry after non-authentication errors. No additional paid review was requested after the service reported its included-review quota exhausted.
 
 Local artifact SHA-256 digests (build timestamps mean other builds may differ):
 
-- `samsarix_workspace-0.2.1-py3-none-any.whl`: `feef8e938f0d71ffab4dfa365bff37f87b85198973d7482d3255418190ca1c09`
-- `samsarix_workspace-0.2.1.tar.gz`: `47457666fc285d2c09d343020cec6a9d5ac4fc915d6a5ec6e1d3362cab1ee153`
+- `samsarix_workspace-0.2.1-py3-none-any.whl`: `e907f70682ef4a9c895590dd800fc61534cf3fd9e07ba78b84a7a373d3c09e24`
+- `samsarix_workspace-0.2.1.tar.gz`: `221afe3cd76f1059dd6b0c28a1406c303872ab3092ae2960667bc4b8304a6762`
 
 Exact-head cross-platform CI and review evidence belong to the `0.2.1` pull request. WebKit, real mobile hardware, external pilot users, and public package publication have not been validated in this increment. The historical `0.2.0` artifacts above must not be presented as hashes of the new source.
 

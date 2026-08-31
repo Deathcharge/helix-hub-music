@@ -62,7 +62,12 @@ async function api(path, options = {}) {
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     response = await fetch(path, { ...options, headers, signal: controller.signal });
-    payload = await response.json();
+    try {
+      payload = await response.json();
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      payload = null;
+    }
   } catch (_error) {
     setConnection(false);
     if (controller.signal.aborted) {
@@ -74,9 +79,12 @@ async function api(path, options = {}) {
   }
   setConnection(true);
   if (!response.ok) {
-    const error = payload.error || {};
+    const error = payload?.error || {};
     if (response.status === 401) showTokenDialog();
     throw new ApiError(error.code || "request_failed", error.message || `Request failed (${response.status}).`, response.status);
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new ApiError("invalid_response", "The workspace returned an invalid response. Your edit is still here; retry to check the disk version.", response.status);
   }
   return payload;
 }

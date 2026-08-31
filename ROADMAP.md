@@ -7,7 +7,7 @@ This roadmap separates four gates: merge, release, publication, and flagship ado
 Portfolio role: **standalone product candidate**. Develop this as a focused standalone product with its own distribution and support boundary. Integrate with the flagship through versioned contracts, not shared private source.
 Planned repository identity: `Deathcharge/samsarix-workspace` (ready).
 
-Current disposition: `0.2.0` document review is merged in PR #9 with cross-platform CI. The `0.2.1` editor-lifecycle and browser-CI reliability increment is implemented; its exact-head review/merge, publication, and adoption remain separate gates.
+Current disposition: `0.2.0` document review is merged in PR #9 with cross-platform CI. The `0.2.1` editor-lifecycle and browser-CI reliability increment is tracked in [PR #12](https://github.com/Deathcharge/samsarix-workspace/pull/12); publication and adoption remain separate gates.
 
 ## Stabilize the productized default
 
@@ -49,7 +49,7 @@ Current hardening backlog:
 - Bound stalled requests and retain manual, guarded retry behavior
 - Keep recoverable trash and version history as the next product increment; neither is implied by tab-scoped drafts
 
-Next highest-value reliability work after `0.2.0` is recoverable trash/version checkpoints, then a small external user pilot. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
+Next highest-value reliability work after `0.2.1` is recoverable trash/version checkpoints, then a small external user pilot. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
 
 ## Samsarix adoption
 

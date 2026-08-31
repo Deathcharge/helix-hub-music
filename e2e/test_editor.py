@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 
+import pytest
 from conftest import RunningWorkspace
 from playwright.sync_api import Dialog, Page, Route, expect
 
@@ -214,9 +215,9 @@ def test_pending_save_blocks_navigation_but_allows_typing(page: Page) -> None:
     expect(editor).to_have_value("continue alpha")
 
 
+@pytest.mark.parametrize("clock_enabled", [True], indirect=True)
 def test_save_timeout_releases_controls_and_retains_draft(page: Page) -> None:
     open_file(page, "alpha.txt")
-    page.clock.install()
     page.get_by_role("textbox", name="File editor").fill("retain after timeout")
     held = HeldRequests(page, "PUT")
     page.locator("#save-button").click()
@@ -248,6 +249,35 @@ def test_failed_create_keeps_previous_draft_and_retry_succeeds(
     expect(page.get_by_role("textbox", name="File editor")).to_have_value("")
     assert (live_workspace.root / "alpha.txt").read_text(encoding="utf-8") == "alpha on disk\n"
     assert page.evaluate("sessionStorage.getItem('samsarix-workspace-draft')") is None
+
+
+@pytest.mark.parametrize("status", [200, 400, 401])
+def test_non_json_save_response_keeps_draft_and_connection(page: Page, status: int) -> None:
+    open_file(page, "alpha.txt")
+    editor = page.locator("#editor")
+    editor.fill("retain after invalid response")
+    page.route(
+        "**/api/v1/file",
+        lambda route: route.fulfill(status=status, content_type="text/plain", body="Not JSON"),
+        times=1,
+    )
+    page.locator("#save-button").click()
+    expect(page.locator("#editor-message")).to_contain_text(
+        "invalid response" if status == 200 else f"Request failed ({status})"
+    )
+    expect(page.locator("#health-dot")).to_have_class("health-dot online")
+    expect(editor).to_have_value("retain after invalid response")
+    assert (
+        page.evaluate("JSON.parse(sessionStorage.getItem('samsarix-workspace-draft')).content")
+        == "retain after invalid response"
+    )
+    if status == 401:
+        expect(page.locator("#token-dialog")).to_be_visible()
+    else:
+        expect(page.locator("#save-button")).to_be_enabled()
+        page.locator("#save-button").click()
+        expect(page.locator("#editor-message")).to_have_text("Saved")
+        assert page.evaluate("sessionStorage.getItem('samsarix-workspace-draft')") is None
 
 
 def test_conflict_overwrite_includes_typing_during_save(

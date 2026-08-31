@@ -16,6 +16,7 @@ No unreleased changes yet.
 - Explicit conflict overwrite includes the latest editor text; recreating a deleted file uses an atomic create-only guard
 - Creating a file asks before discarding edits and preserves the old draft when creation fails
 - In-flight file operations prevent conflicting navigation/mutations, and requests have a 15-second timeout with retryable recovery
+- Non-JSON HTTP errors retain their status and authentication recovery instead of falsely reporting a disconnected server
 
 ### Added
 

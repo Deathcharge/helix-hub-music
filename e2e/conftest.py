@@ -55,11 +55,20 @@ def live_workspace(tmp_path: Path) -> Iterator[RunningWorkspace]:
             assert not worker.is_alive(), "The loopback test server did not stop"
 
 
+@pytest.fixture
+def clock_enabled(request: pytest.FixtureRequest) -> bool:
+    return bool(getattr(request, "param", False))
+
+
 @pytest.fixture(autouse=True)
-def open_workspace(page: Page, live_workspace: RunningWorkspace) -> Iterator[None]:
+def open_workspace(
+    page: Page, live_workspace: RunningWorkspace, clock_enabled: bool
+) -> Iterator[None]:
     errors: list[str] = []
     page.set_default_timeout(5_000)
     page.on("pageerror", lambda error: errors.append(str(error)))
+    if clock_enabled:
+        page.clock.install()
     page.goto(live_workspace.url)
     expect(page.get_by_role("treeitem").filter(has_text="alpha.txt")).to_be_visible()
     yield
