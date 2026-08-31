@@ -10,6 +10,9 @@ const state = {
   etag: null,
   dirty: false,
   saving: false,
+  loading: false,
+  openGeneration: 0,
+  mutating: false,
   terminalSession: null,
   entryMode: "file",
   searchQuery: "",
@@ -54,14 +57,22 @@ async function api(path, options = {}) {
   if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (state.token) headers.set("Authorization", `Bearer ${state.token}`);
   let response;
+  let payload;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    response = await fetch(path, { ...options, headers });
+    response = await fetch(path, { ...options, headers, signal: controller.signal });
+    payload = await response.json();
   } catch (_error) {
     setConnection(false);
+    if (controller.signal.aborted) {
+      throw new ApiError("request_timeout", "The workspace request timed out. Your edit is still here; retry to check the disk version.", 0);
+    }
     throw new ApiError("connection_failed", "The local workspace server is unavailable.", 0);
+  } finally {
+    clearTimeout(timeout);
   }
   setConnection(true);
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = payload.error || {};
     if (response.status === 401) showTokenDialog();
@@ -98,8 +109,25 @@ function showError(error) {
 function updateDirty(dirty) {
   state.dirty = dirty;
   elements["dirty-indicator"].hidden = !dirty;
-  elements["save-button"].disabled = !state.selectedPath || !dirty || state.saving;
+  updateEditorActions();
   elements["editor-message"].textContent = dirty ? "Unsaved changes" : "Saved";
+}
+
+function updateEditorActions() {
+  const busy = state.loading || state.saving || state.mutating;
+  const fileOpen = state.selectedKind === "file";
+  elements.editor.readOnly = state.loading || state.mutating;
+  elements.editor.setAttribute("aria-busy", String(busy));
+  elements["save-button"].disabled = busy || !fileOpen || !state.dirty;
+  elements["rename-button"].disabled = busy || !state.selectedPath || state.selectedKind.startsWith("blocked");
+  elements["delete-button"].disabled = busy || !state.selectedPath;
+  elements["preview-button"].disabled = busy || !fileOpen || !isMarkdown(state.selectedPath);
+  elements["download-button"].disabled = state.loading || !fileOpen;
+  for (const id of ["new-file-button", "new-folder-button", "empty-new-button", "import-button"]) {
+    elements[id].disabled = busy;
+  }
+  elements["entry-submit"].disabled = state.mutating;
+  elements["confirm-form"].querySelector("[type=submit]").disabled = state.mutating;
 }
 
 function updateStats() {
@@ -157,7 +185,7 @@ function offerDraft(file) {
   state.pendingDraft = { ...draft, serverFile: file };
   const diskChanged = draft.etag && draft.etag !== file.etag;
   elements["draft-message"].textContent = diskChanged
-    ? "This tab retained an unsaved draft, and the file also changed on disk. Restoring keeps the draft in the editor and uses the disk version as the next save checkpoint."
+    ? "This tab retained an unsaved draft, and the file also changed on disk. Restore it to continue editing; saving will still require resolving the disk conflict."
     : "This tab retained unsaved text from a page reload. Restore it to continue editing, or discard it to keep the disk version.";
   elements["draft-dialog"].showModal();
   elements["draft-restore"].focus();
@@ -169,7 +197,7 @@ function restoreDraft() {
   if (!draft) return;
   elements["draft-dialog"].close();
   state.pendingDraft = null;
-  state.etag = draft.serverFile.etag;
+  state.etag = draft.etag;
   elements.editor.value = draft.content;
   updateDirty(true);
   updateStats();
@@ -188,10 +216,12 @@ function discardDraft() {
 }
 
 function canLeaveEditor() {
+  if (state.saving || state.mutating) {
+    toast("Wait for the current file operation to finish.");
+    return false;
+  }
   if (!state.dirty) return true;
-  const discard = window.confirm("Discard unsaved changes?");
-  if (discard) clearDraft();
-  return discard;
+  return window.confirm("Discard unsaved changes?");
 }
 
 async function refreshWorkspace({ keepSelection = true } = {}) {
@@ -209,7 +239,7 @@ async function refreshWorkspace({ keepSelection = true } = {}) {
     elements["workspace-name"].textContent = summary.workspace.name || "Workspace";
     elements.usage.textContent = `${formatBytes(summary.workspace.usage_bytes)} / ${formatBytes(summary.workspace.limits.max_total_bytes)}`;
     if (keepSelection && state.selectedPath && !state.files.some((entry) => entry.path === state.selectedPath)) {
-      if (state.dirty) {
+      if (state.dirty || state.saving || state.loading || state.mutating) {
         toast(`${state.selectedPath} no longer appears on disk; your unsaved draft is still open.`, true);
       } else {
         closeDocument();
@@ -325,14 +355,10 @@ function renderSearchResults(report) {
 }
 
 async function openSearchMatch(match) {
-  if (state.selectedPath === match.path && state.selectedKind === "file") {
+  if (!state.loading && state.selectedPath === match.path && state.selectedKind === "file") {
     focusSearchMatch(match);
     return;
   }
-  if (!canLeaveEditor()) return;
-  state.selectedPath = match.path;
-  state.selectedKind = "file";
-  renderFiles();
   await openFile(match.path, match);
 }
 
@@ -354,8 +380,16 @@ function focusSearchMatch(match) {
 }
 
 async function selectEntry(entry) {
-  if (entry.path === state.selectedPath) return;
+  if (!state.loading && entry.path === state.selectedPath) return;
+  if (entry.kind === "file") {
+    await openFile(entry.path);
+    return;
+  }
   if (!canLeaveEditor()) return;
+  state.openGeneration += 1;
+  state.loading = false;
+  clearTimeout(state.draftTimer);
+  clearDraft();
   state.selectedPath = entry.path;
   state.selectedKind = entry.kind;
   renderFiles();
@@ -379,14 +413,21 @@ async function selectEntry(entry) {
     updateDirty(false);
     return;
   }
-  await openFile(entry.path);
 }
 
 async function openFile(path, match = null) {
+  if (!canLeaveEditor()) return;
+  const generation = ++state.openGeneration;
+  state.loading = true;
+  clearTimeout(state.draftTimer);
+  writeDraft();
+  updateEditorActions();
   elements["editor-message"].textContent = "Opening…";
   try {
     const payload = await api(`/api/v1/file?path=${encodeURIComponent(path)}`);
+    if (generation !== state.openGeneration) return;
     const file = payload.file;
+    if (state.selectedPath !== path) clearDraft();
     state.selectedPath = file.path;
     state.selectedKind = "file";
     state.etag = file.etag;
@@ -411,11 +452,19 @@ async function openFile(path, match = null) {
       if (match) focusSearchMatch(match);
     }
   } catch (error) {
+    if (generation !== state.openGeneration) return;
     showError(error);
+  } finally {
+    if (generation === state.openGeneration) {
+      state.loading = false;
+      updateEditorActions();
+    }
   }
 }
 
 function closeDocument() {
+  state.openGeneration += 1;
+  state.loading = false;
   clearTimeout(state.draftTimer);
   clearDraft();
   state.selectedPath = null;
@@ -441,44 +490,48 @@ function closeDocument() {
   elements["save-button"].disabled = true;
   elements["dirty-indicator"].hidden = true;
   elements["file-stats"].textContent = "";
+  updateEditorActions();
   renderFiles();
 }
 
 async function saveFile() {
-  if (!state.selectedPath || state.selectedKind !== "file" || !state.dirty || state.saving) return;
+  if (!state.selectedPath || state.selectedKind !== "file" || !state.dirty || state.saving || state.loading || state.mutating || document.querySelector("dialog[open]")) return;
   await persistFile(elements.editor.value, state.etag);
 }
 
-async function persistFile(content, expectedEtag) {
-  if (state.saving) return;
+async function persistFile(content, expectedEtag, createOnly = false) {
+  if (state.saving || state.loading || state.mutating) return;
+  const path = state.selectedPath;
   state.saving = true;
-  elements["save-button"].disabled = true;
+  updateEditorActions();
   elements["editor-message"].textContent = "Saving…";
   try {
     const payload = await api("/api/v1/file", {
       method: "PUT",
-      body: JSON.stringify({ path: state.selectedPath, content, expected_etag: expectedEtag }),
+      body: JSON.stringify({ path, content, expected_etag: expectedEtag, create_only: createOnly }),
     });
     state.etag = payload.file.etag;
     state.pendingConflict = null;
-    clearDraft();
-    updateDirty(false);
-    toast(`Saved ${state.selectedPath}`);
+    updateDirty(elements.editor.value !== content);
+    if (state.dirty) writeDraft();
+    else clearDraft(path);
+    toast(state.dirty ? `Saved ${path}; newer edits are still unsaved.` : `Saved ${path}`);
     await refreshWorkspace();
   } catch (error) {
     updateDirty(true);
-    if (error instanceof ApiError && error.code === "edit_conflict") {
-      await prepareConflict(content);
+    writeDraft();
+    if (error instanceof ApiError && ["edit_conflict", "already_exists"].includes(error.code)) {
+      await prepareConflict();
     } else {
       showError(error);
     }
   } finally {
     state.saving = false;
-    elements["save-button"].disabled = !state.selectedPath || !state.dirty;
+    updateEditorActions();
   }
 }
 
-async function prepareConflict(localContent) {
+async function prepareConflict() {
   let serverFile = null;
   try {
     const payload = await api(`/api/v1/file?path=${encodeURIComponent(state.selectedPath)}`);
@@ -489,8 +542,7 @@ async function prepareConflict(localContent) {
       return;
     }
   }
-  state.pendingConflict = { path: state.selectedPath, localContent, serverFile };
-  state.etag = serverFile ? serverFile.etag : null;
+  state.pendingConflict = { path: state.selectedPath, serverFile };
   elements["conflict-message"].textContent = serverFile
     ? `${state.selectedPath} changed on disk after you opened it. Your unsaved text is still in the editor.`
     : `${state.selectedPath} was deleted on disk after you opened it. Your unsaved text is still in the editor.`;
@@ -512,6 +564,7 @@ async function reloadConflict() {
   }
   elements.editor.value = conflict.serverFile.content;
   state.etag = conflict.serverFile.etag;
+  clearDraft();
   updateDirty(false);
   updateStats();
   toast(`Reloaded ${conflict.path}`);
@@ -523,14 +576,27 @@ async function overwriteConflict() {
   if (!conflict) return;
   elements["conflict-dialog"].close();
   state.pendingConflict = null;
-  await persistFile(conflict.localContent, conflict.serverFile ? conflict.serverFile.etag : null);
+  await persistFile(elements.editor.value, conflict.serverFile ? conflict.serverFile.etag : null, !conflict.serverFile);
 }
 
 async function importFiles(event) {
   const files = Array.from(event.target.files || []);
   event.target.value = "";
-  if (!files.length) return;
+  if (!files.length || state.loading || state.saving || state.mutating) return;
   const targetFolder = state.selectedKind === "directory" ? state.selectedPath : "";
+  state.mutating = true;
+  updateEditorActions();
+  let imported;
+  try {
+    imported = await importDocuments(files, targetFolder);
+  } finally {
+    state.mutating = false;
+    updateEditorActions();
+  }
+  if (imported.length === 1 && !state.dirty) await openFile(imported[0]);
+}
+
+async function importDocuments(files, targetFolder) {
   const imported = [];
   const failures = [];
   for (const file of files) {
@@ -579,12 +645,12 @@ async function importFiles(event) {
     }
   }
   await refreshWorkspace();
-  if (imported.length === 1 && !state.dirty) await openFile(imported[0]);
   if (failures.length) {
     toast(`Imported ${imported.length}; ${failures.length} skipped. ${failures[0]}`, true);
   } else {
     toast(`Imported ${imported.length} ${imported.length === 1 ? "file" : "files"}`);
   }
+  return imported;
 }
 
 function downloadFile() {
@@ -757,6 +823,7 @@ function togglePreview() {
 }
 
 function openEntryDialog(mode, initialPath = "") {
+  if (state.loading || state.saving || state.mutating) return;
   state.entryMode = mode;
   const isMove = mode === "move";
   const isFolder = mode === "folder";
@@ -771,10 +838,16 @@ function openEntryDialog(mode, initialPath = "") {
 
 async function submitEntry(event) {
   event.preventDefault();
+  if (state.loading || state.saving || state.mutating) return;
   const path = elements["entry-path"].value.trim();
   if (!path) return;
   const mode = state.entryMode;
   const movedKind = state.selectedKind;
+  const opensFile = mode === "file" || (mode === "move" && movedKind === "file");
+  if (opensFile && !canLeaveEditor()) return;
+  state.mutating = true;
+  updateEditorActions();
+  let succeeded = false;
   try {
     if (mode === "file") {
       await api("/api/v1/file", {
@@ -785,24 +858,31 @@ async function submitEntry(event) {
       await api("/api/v1/folders", { method: "POST", body: JSON.stringify({ path }) });
     } else {
       await api("/api/v1/move", { method: "POST", body: JSON.stringify({ source: state.selectedPath, destination: path }) });
-      state.selectedPath = null;
+      closeDocument();
+    }
+    if (opensFile) {
+      closeDocument();
     }
     elements["entry-dialog"].close();
     await refreshWorkspace();
-    if (mode === "file" || (mode === "move" && movedKind === "file")) {
-      await openFile(path);
-    } else if (mode === "move") {
-      const movedEntry = state.files.find((entry) => entry.path === path);
-      if (movedEntry) await selectEntry(movedEntry);
-    }
+    succeeded = true;
     toast(mode === "move" ? `Moved to ${path}` : `Created ${path}`);
   } catch (error) {
     showError(error);
+  } finally {
+    state.mutating = false;
+    updateEditorActions();
+  }
+  if (succeeded && opensFile) {
+    await openFile(path);
+  } else if (succeeded && mode === "move") {
+    const movedEntry = state.files.find((entry) => entry.path === path);
+    if (movedEntry) await selectEntry(movedEntry);
   }
 }
 
 function requestDelete() {
-  if (!state.selectedPath) return;
+  if (!state.selectedPath || state.loading || state.saving || state.mutating) return;
   elements["confirm-title"].textContent = `Delete ${state.selectedKind === "directory" ? "folder" : "file"}?`;
   elements["confirm-message"].textContent = state.selectedKind === "directory"
     ? `${state.selectedPath} and everything inside it will be permanently removed.`
@@ -812,8 +892,11 @@ function requestDelete() {
 
 async function confirmDelete(event) {
   event.preventDefault();
+  if (state.loading || state.saving || state.mutating) return;
   const path = state.selectedPath;
   if (!path) return;
+  state.mutating = true;
+  updateEditorActions();
   try {
     await api(`/api/v1/entry?path=${encodeURIComponent(path)}&recursive=${state.selectedKind === "directory"}`, { method: "DELETE" });
     elements["confirm-dialog"].close();
@@ -822,6 +905,9 @@ async function confirmDelete(event) {
     toast(`Deleted ${path}`);
   } catch (error) {
     showError(error);
+  } finally {
+    state.mutating = false;
+    updateEditorActions();
   }
 }
 
@@ -897,7 +983,7 @@ elements["save-button"].addEventListener("click", saveFile);
 elements["preview-button"].addEventListener("click", togglePreview);
 elements["download-button"].addEventListener("click", downloadFile);
 elements["rename-button"].addEventListener("click", () => {
-  if (state.selectedPath && canLeaveEditor()) openEntryDialog("move", state.selectedPath);
+  if (state.selectedPath) openEntryDialog("move", state.selectedPath);
 });
 elements["delete-button"].addEventListener("click", requestDelete);
 elements.editor.addEventListener("input", () => {

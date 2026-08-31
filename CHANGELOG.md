@@ -6,6 +6,22 @@ Notable changes are recorded here. Versions follow [Semantic Versioning](https:/
 
 No unreleased changes yet.
 
+## [0.2.1] - 2026-08-31
+
+### Fixed
+
+- Save acknowledgments no longer clear unsaved text typed during the request
+- Pending or failed opens cannot pair the old editor text with a different path, and out-of-order responses cannot replace the latest selection
+- Continuing or restoring a draft retains its original ETag instead of silently authorizing external-change replacement
+- Explicit conflict overwrite includes the latest editor text; recreating a deleted file uses an atomic create-only guard
+- Creating a file asks before discarding edits and preserves the old draft when creation fails
+- In-flight file operations prevent conflicting navigation/mutations, and requests have a 15-second timeout with retryable recovery
+
+### Added
+
+- Repeatable browser-to-API-to-disk acceptance tests with controlled request delivery, temporary workspace isolation, and failure traces
+- Chromium Windows/Linux and Firefox Linux CI jobs, independent of the Python coverage gate
+
 ## [0.2.0] - 2026-08-10
 
 ### Added

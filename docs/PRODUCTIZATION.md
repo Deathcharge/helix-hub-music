@@ -1,10 +1,10 @@
 # Productization record
 
-Date: 2026-08-10
+Date: 2026-08-31
 
 Baseline revision: `64ad942bbf9e7f006a6ac481933587559121f50b`
 
-Product: Samsarix Workspace `0.2.0`
+Product: Samsarix Workspace `0.2.1`
 
 Owner: Samsarix LLC
 
@@ -184,8 +184,8 @@ This record explains an engineering choice and is not legal advice.
 Required local gates:
 
 ```bash
-python -m ruff check samsarix_workspace tests
-python -m ruff format --check samsarix_workspace tests
+python -m ruff check samsarix_workspace tests e2e
+python -m ruff format --check samsarix_workspace tests e2e
 python -m mypy samsarix_workspace
 python -m pytest
 node --check samsarix_workspace/static/app.js
@@ -194,9 +194,9 @@ python -m build
 
 CI repeats lint, type, test, build, wheel-install, import, and CLI smoke checks on supported Python versions across Windows and Linux. The repository does not auto-publish packages or deploy a hosted service because no package index, domain, signing identity, or production environment has been configured.
 
-### Final verification evidence
+### Historical `0.2.0` verification evidence
 
-The final Windows/Python 3.11 release-candidate run produced:
+The Windows/Python 3.11 `0.2.0` release-candidate run produced:
 
 | Gate | Result |
 | --- | --- |
@@ -213,19 +213,65 @@ The final Windows/Python 3.11 release-candidate run produced:
 | Runtime dependency audit | `pip-audit 2.10.0` found no known vulnerabilities in the exact installed environment after disposable bootstrap tools were updated; the unpublished local package identity was skipped as expected |
 | Adversarial sink search | No subprocess, dynamic-evaluation, unsafe deserialization, or outbound HTTP client sink remains in the application package |
 
-Final artifact SHA-256 digests:
+Historical `0.2.0` artifact SHA-256 digests (not the current build):
 
 - `samsarix_workspace-0.2.0-py3-none-any.whl`: `017a98819473d17b43d2a2f98b71a67406f2952d8735f1b05c37d681726c1111`
 - `samsarix_workspace-0.2.0.tar.gz`: `77f169024ef7f3b3380e95bf8f6dba70159a74fa0d104e5d47aaf93d6be5c059`
 
 The single skipped test covers POSIX FIFO classification and is expected on Windows; Windows hard-link and symlink regressions executed successfully. No test depends on the legacy globally installed `helix-unified` package.
 
+## `0.2.1` editor-lifecycle reliability increment
+
+Baseline: `e5a5330` on `main`, clean working tree, no open PRs, and green current cross-platform CI. The Python baseline remained 56 passed / one expected Windows FIFO skip with 90.87% branch coverage, Ruff and mypy passing.
+
+The [VS Code editing guide](https://code.visualstudio.com/docs/editing/codebasics) documents preserving unsaved work as an ordinary editor expectation. This is adjacent-product evidence, not proof of Samsarix demand. Inspection and a new real-browser regression suite revealed eight reproducible failures before implementation: newer typing could be marked saved, pending/failed opens could corrupt editor identity or drafts, stale responses won selection, conflict continuation/restoration bypassed original ETags, recreation could overwrite an intervening file, and new-file creation bypassed discard confirmation. These were locally actionable P1 reliability defects, ahead of adding trash or history.
+
+Implemented controls:
+
+- Save responses acknowledge the submitted snapshot only; later typing stays dirty and the draft uses the acknowledged ETag.
+- Opens commit the content/path/checkpoint together, use generation checks, and keep the old editor read-only until the latest request resolves.
+- Save/mutation navigation guards and single-flight mutation controls preserve document identity throughout asynchronous operations.
+- Draft restoration and conflict cancellation retain original ETags; only explicit reload/overwrite chooses a new checkpoint. Missing-file overwrite uses create-only semantics.
+- New-file creation asks before discard and preserves the prior draft on failure.
+- All browser API requests time out after 15 seconds without automatically replaying mutations.
+- Browser tests use temporary files and a real loopback Uvicorn server; deterministic request holds reproduce races while writes still go through the production API to disk.
+
+Following the [Playwright Python test-runner](https://playwright.dev/python/docs/test-runners) and [CI guidance](https://playwright.dev/python/docs/ci), browser tools are pinned in an optional extra, separate from runtime dependencies. The CI matrix adds Chromium on Windows/Linux and Firefox on Linux, with seven-day failure artifacts containing synthetic fixture data only. The Python unit/integration coverage gate remains independent and unchanged. No telemetry, hosted service, account system, paid API, or filesystem retention store was introduced.
+
+### `0.2.1` local verification
+
+Commands used the disposable Python 3.11 environment at `output/playwright/lifecycle-env` unless noted:
+
+| Command / gate | Observed result |
+| --- | --- |
+| `python -m ruff check samsarix_workspace tests e2e` | Passed |
+| `python -m ruff format --check samsarix_workspace tests e2e` | Passed; 14 files |
+| `python -m mypy samsarix_workspace` | Passed; 6 source files |
+| `python -m pytest` | 56 passed, one expected Windows FIFO skip; 90.87% branch-aware coverage |
+| `node --check samsarix_workspace/static/app.js` | Passed |
+| `python -m build` | Built sdist, then wheel from that sdist |
+| `py -3.11 -m twine check dist/samsarix_workspace-0.2.1-py3-none-any.whl dist/samsarix_workspace-0.2.1.tar.gz` | Both passed |
+| `python -m pytest` inside the extracted sdist | 56 passed, one expected Windows FIFO skip; 90.87% coverage; packaged fixtures are sufficient |
+| Installed-wheel import, CLI `--version`, and `python -m pip check` | Version `0.2.1`; no broken requirements |
+| `python -m pytest <absolute-checkout>/e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output <absolute-checkout>/output/playwright/wheel-final` from outside the checkout with `SAMSARIX_TEST_INSTALLED=1` | 32 passed in 133.00 seconds on Windows; Chromium and Firefox |
+| `py -3.11 -m pip_audit --path output/playwright/lifecycle-env/Lib/site-packages --progress-spinner off` | No known dependency vulnerabilities after updating the disposable environment's pip/setuptools; unpublished `samsarix-workspace` skipped |
+| Headed Chromium at 390×844 | Document open/preview works, no horizontal overflow, no console errors or warnings |
+
+The current Starlette test client emits one upstream deprecation warning about its `httpx` integration; it does not fail these checks. No warning filter was added. Browser tests cover 16 scenarios per engine against real temporary files. The installed-wheel run starts outside the checkout and asserts that the server imports from `site-packages`, preventing a source checkout from masking packaging failures. Failure traces exposed a Firefox selection-test synchronization issue; the test now explicitly waits for the editor to be visible before inspecting its selected text.
+
+Local artifact SHA-256 digests (build timestamps mean other builds may differ):
+
+- `samsarix_workspace-0.2.1-py3-none-any.whl`: `feef8e938f0d71ffab4dfa365bff37f87b85198973d7482d3255418190ca1c09`
+- `samsarix_workspace-0.2.1.tar.gz`: `47457666fc285d2c09d343020cec6a9d5ac4fc915d6a5ec6e1d3362cab1ee153`
+
+Exact-head cross-platform CI and review evidence belong to the `0.2.1` pull request. WebKit, real mobile hardware, external pilot users, and public package publication have not been validated in this increment. The historical `0.2.0` artifacts above must not be presented as hashes of the new source.
+
 ## Next best work
 
 The next release should favor reliability over breadth:
 
-1. Add the document-review browser journey to CI with a small checked-in fixture and targeted visual assertions.
-2. Add recoverable trash and bounded version checkpoints before expanding destructive operations.
+1. Add recoverable trash and bounded version checkpoints before expanding destructive operations.
+2. Extend browser coverage to WebKit, preserving the existing lifecycle regression cases.
 3. Run a small external pilot against the exact wheel and capture consented, privacy-preserving task success/support evidence.
 4. If hosted multi-user use becomes a real requirement, design identity, authorization, per-tenant roots, audit logging, CSRF/origin controls, and deployment isolation as a separate security phase—not as a flag on the local app.
 5. Before PyPI publication, reserve the package name, configure trusted publishing, generate provenance/SBOM artifacts, and document a rollback process.

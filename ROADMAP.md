@@ -7,14 +7,14 @@ This roadmap separates four gates: merge, release, publication, and flagship ado
 Portfolio role: **standalone product candidate**. Develop this as a focused standalone product with its own distribution and support boundary. Integrate with the flagship through versioned contracts, not shared private source.
 Planned repository identity: `Deathcharge/samsarix-workspace` (ready).
 
-Current disposition: `0.1.0` productization is merged. The `0.2.0` standalone document-review release candidate is implemented and locally verified; exact-head CI/merge, publication, and adoption remain separate decisions.
+Current disposition: `0.2.0` document review is merged in PR #9 with cross-platform CI. The `0.2.1` editor-lifecycle and browser-CI reliability increment is implemented; its exact-head review/merge, publication, and adoption remain separate gates.
 
 ## Stabilize the productized default
 
 - Keep the default branch buildable from a clean checkout and preserve exact-head CI evidence.
 - Keep Samsarix LLC branding, package identity, license metadata, and compatibility aliases internally consistent.
 - Preserve the pre-productization default under a rollback ref before merging; do not delete legacy history.
-- Review priority: review PR 1 plus approve AGPL/name and complete cross-platform path/auth testing before a signed pre-release.
+- Release priority: preserve the reviewed source and cross-platform evidence, validate recovery with an external pilot, and complete distribution/signing decisions before a public prerelease.
 
 ## Release candidate
 
@@ -38,7 +38,16 @@ Current hardening backlog:
 - Tab-scoped draft recovery and explicit external-edit conflict choices
 - Host-header validation and create-only file creation
 - Local gates passed: real-browser desktop/mobile and accessibility sanity checks, built-artifact installation, metadata validation, and dependency audit
-- Remaining gate: exact-head cross-platform CI and reviewed merge
+- Merged in PR #9 at `bcafd5f`; exact-head Linux/Windows CI passed
+
+## Editor reliability (`0.2.1`)
+
+- Retain newer typing and draft content when an earlier save completes
+- Make asynchronous open selection atomic; retain old content on failure
+- Preserve ETag guards through draft restore and keep-editing conflict choices
+- Exercise the full document-review journey and delayed-response failures in browser CI
+- Bound stalled requests and retain manual, guarded retry behavior
+- Keep recoverable trash and version history as the next product increment; neither is implied by tab-scoped drafts
 
 Next highest-value reliability work after `0.2.0` is recoverable trash/version checkpoints, then a small external user pilot. Multi-user hosting, real shells, AI providers, and flagship integration remain separate designs rather than incremental toggles.
 

@@ -33,10 +33,10 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
 
       - name: Lint
-        run: python -m ruff check samsarix_workspace tests
+        run: python -m ruff check samsarix_workspace tests e2e
 
       - name: Check formatting
-        run: python -m ruff format --check samsarix_workspace tests
+        run: python -m ruff format --check samsarix_workspace tests e2e
 
       - name: Type check
         run: python -m mypy samsarix_workspace
@@ -67,3 +67,48 @@ jobs:
           name: samsarix-workspace-distributions
           path: dist/*
           if-no-files-found: error
+
+  browser:
+    name: Browser ${{ matrix.browser }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            browser: chromium
+          - os: ubuntu-latest
+            browser: firefox
+          - os: windows-latest
+            browser: chromium
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install browser test tools
+        run: python -m pip install -e ".[dev,browser]"
+      - name: Install browser
+        run: python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Build and install the wheel
+        shell: bash
+        run: |
+          python -m build --wheel
+          python -m pip install --force-reinstall --no-deps dist/*.whl
+      - name: Browser-to-disk acceptance tests
+        working-directory: ${{ runner.temp }}
+        env:
+          SAMSARIX_TEST_INSTALLED: "1"
+        run: python -m pytest "${{ github.workspace }}/e2e" -o addopts= --browser ${{ matrix.browser }} --tracing retain-on-failure --screenshot only-on-failure --output "${{ github.workspace }}/output/playwright/ci"
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-failure-${{ matrix.os }}-${{ matrix.browser }}
+          path: output/playwright/ci
+          retention-days: 7
+          if-no-files-found: ignore

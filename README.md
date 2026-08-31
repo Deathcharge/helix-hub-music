@@ -4,7 +4,7 @@ Samsarix Workspace is a small, local-first browser workspace for persistent text
 
 This repository was previously named `helix-web-os`; that history remains in Git. The product and company identity are now **Samsarix Workspace** by **Samsarix LLC**.
 
-> **Maturity:** `0.2.0` alpha release candidate. The primary local review workflow is implemented and tested. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal.
+> **Maturity:** `0.2.1` alpha release candidate. The primary local review workflow is implemented and tested. It is not a hosted multi-user IDE, an AI platform, or a replacement for a system terminal.
 
 ## What works
 
@@ -54,6 +54,8 @@ samsarix-workspace serve ../my-workspace --open
 Then open `http://127.0.0.1:8765`. Your files remain in `../my-workspace`; uninstalling the package does not remove them.
 
 Use **Import** to bring one or more UTF-8 text files into the root (or a selected folder), search their contents from the sidebar, open a result at its matching line, preview Markdown, edit, and download the current document. Unsaved text is retained only in this browser tab for reload recovery; saving still requires an explicit action.
+
+You can keep typing during a save: only the submitted text is acknowledged as saved, and newer edits remain unsaved. Opening another file waits for a save to finish. Failed opens preserve your current document, and conflict choices never silently authorize replacing external changes.
 
 You can also run the module form:
 
@@ -124,14 +126,24 @@ See the [API reference](https://github.com/Deathcharge/samsarix-workspace/blob/m
 
 ```bash
 python -m pip install -e ".[dev]"
-python -m ruff check samsarix_workspace tests
-python -m ruff format --check samsarix_workspace tests
+python -m ruff check samsarix_workspace tests e2e
+python -m ruff format --check samsarix_workspace tests e2e
 python -m mypy samsarix_workspace
 python -m pytest
 python -m build
 ```
 
 The test gate requires at least 90% branch-aware coverage of the Python package. See the [contribution guide](https://github.com/Deathcharge/samsarix-workspace/blob/main/CONTRIBUTING.md) for contribution and sign-off rules.
+
+Browser acceptance tests run against a real loopback server and disposable files:
+
+```bash
+python -m pip install -e ".[dev,browser]"
+python -m playwright install chromium firefox
+python -m pytest e2e -o addopts= --browser chromium --browser firefox --tracing retain-on-failure --screenshot only-on-failure --output output/playwright/local
+```
+
+The separate browser suite does not replace or lower the Python coverage gate. CI runs Chromium on Windows/Linux and Firefox on Linux; no browser-testing dependencies are required to run the product.
 
 ## Product and security notes
 
